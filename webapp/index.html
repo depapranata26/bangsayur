@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>BangSayur — Pesan Sayur</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0b141a; }
+  #app { max-width: 480px; height: 100dvh; margin: 0 auto; display: flex; flex-direction: column; background: #efeae2; }
+  header { background: #075e54; color: #fff; padding: 10px 12px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .avatar { width: 42px; height: 42px; border-radius: 50%; background: #128c7e; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+  .who { flex: 1; min-width: 0; }
+  .who b { font-size: 16px; display: block; }
+  .who span { font-size: 12px; color: #c8e6c9; }
+  #whoami { background: #06463e; color: #fff; border: 1px solid #128c7e; border-radius: 6px; padding: 5px; font-size: 13px; max-width: 132px; }
+  #chat { flex: 1; overflow-y: auto; padding: 12px 10px; display: flex; flex-direction: column; gap: 6px; }
+  .msg { max-width: 85%; padding: 8px 10px 6px; border-radius: 8px; font-size: 15px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; box-shadow: 0 1px 1px rgba(0,0,0,.15); }
+  .msg .time { display: block; text-align: right; font-size: 10px; color: #8696a0; margin-top: 3px; }
+  .in { align-self: flex-start; background: #fff; border-top-left-radius: 2px; }
+  .out { align-self: flex-end; background: #dcf8c6; border-top-right-radius: 2px; }
+  .typing { align-self: flex-start; background: #fff; border-radius: 8px; padding: 10px 14px; font-size: 14px; color: #667781; box-shadow: 0 1px 1px rgba(0,0,0,.15); }
+  .typing i { animation: blink 1.2s infinite; font-style: normal; }
+  .typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%,100% { opacity: .2; } 50% { opacity: 1; } }
+  #chips { display: flex; gap: 6px; overflow-x: auto; padding: 8px 10px; background: #f0f2f5; flex-shrink: 0; scrollbar-width: none; }
+  #chips::-webkit-scrollbar { display: none; }
+  .chip { flex-shrink: 0; background: #fff; border: 1px solid #d1d7db; border-radius: 16px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+  .chip:active { background: #d9fdd3; }
+  #bar { display: flex; gap: 8px; padding: 8px 10px; background: #f0f2f5; flex-shrink: 0; }
+  #input { flex: 1; border: none; border-radius: 20px; padding: 10px 14px; font-size: 15px; outline: none; background: #fff; }
+  #send { width: 44px; height: 44px; border: none; border-radius: 50%; background: #128c7e; color: #fff; font-size: 18px; cursor: pointer; flex-shrink: 0; }
+  #send:disabled { background: #8696a0; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="avatar">🥬</div>
+    <div class="who"><b>BangSayur</b><span>online • balas cepat</span></div>
+    <select id="whoami" title="Saya pesan sebagai..."></select>
+  </header>
+  <div id="chat"></div>
+  <div id="chips"></div>
+  <div id="bar">
+    <input id="input" type="text" placeholder="Tulis pesan..." autocomplete="off">
+    <button id="send" title="Kirim">➤</button>
+  </div>
+</div>
+<script>
+const chat = document.getElementById('chat');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+const whoami = document.getElementById('whoami');
+let sender = 'Bu Sari';
+
+const CHIPS = [
+  ['🥬 Pesan sayur', 'Halo bang, saya mau pesan sayur'],
+  ['📋 Daftar harga', 'Daftar harga sayur hari ini apa aja bang?'],
+  ['💰 Total hari ini', 'Total pesanan hari ini berapa bang?'],
+  ['🛵 Rute hari ini', 'Rute hari ini gimana bang?'],
+  ['🧾 Belum bayar', 'Siapa aja yang belum bayar bang?'],
+  ['📊 Rekap omzet', 'Rekap omzet hari ini dong bang'],
+];
+const chipsEl = document.getElementById('chips');
+CHIPS.forEach(([label, text]) => {
+  const b = document.createElement('button');
+  b.className = 'chip'; b.textContent = label;
+  b.onclick = () => send(text);
+  chipsEl.appendChild(b);
+});
+
+function timeNow() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function bubble(text, cls) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + cls;
+  d.textContent = text;
+  const t = document.createElement('span');
+  t.className = 'time'; t.textContent = timeNow();
+  d.appendChild(t);
+  chat.appendChild(d);
+  chat.scrollTop = chat.scrollHeight;
+}
+async function send(text) {
+  text = (text || input.value).trim();
+  if (!text) return;
+  input.value = '';
+  bubble(text, 'out');
+  const tp = document.createElement('div');
+  tp.className = 'typing'; tp.innerHTML = 'BangSayur mengetik <i>•</i><i>•</i><i>•</i>';
+  chat.appendChild(tp);
+  chat.scrollTop = chat.scrollHeight;
+  sendBtn.disabled = true;
+  try {
+    const r = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sender, message: text }),
+    });
+    const data = await r.json();
+    tp.remove();
+    bubble(data.reply || 'Maaf, saya tidak mengerti.', 'in');
+  } catch (e) {
+    tp.remove();
+    bubble('Waduh, koneksi ke BangSayur putus. Coba lagi ya.', 'in');
+  }
+  sendBtn.disabled = false;
+  input.focus();
+}
+sendBtn.onclick = () => send();
+input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+
+fetch('/api/pelanggan').then(r => r.json()).then(data => {
+  const list = data.pelanggan || [];
+  const opts = list.map(p => p.nama);
+  opts.push('Tukang Sayur');
+  whoami.innerHTML = opts.map(n => `<option>${n}</option>`).join('');
+  whoami.value = sender;
+}).catch(() => {
+  whoami.innerHTML = ['Bu Sari', 'Pak Budi', 'Bu Ratna', 'Tukang Sayur'].map(n => `<option>${n}</option>`).join('');
+  whoami.value = sender;
+});
+whoami.onchange = () => { sender = whoami.value; };
+
+bubble('Halo! Saya Bang Sayur 🥬\n\nMau pesan sayur apa hari ini? Tulis aja di sini, kayak chat WA biasa. Atau pencet tombol cepat di bawah.', 'in');
+input.focus();
+</script>
+</body>
+</html>
