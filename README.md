@@ -114,6 +114,43 @@ Melati 12 duluan) dirute jadi Budi Melati 5 → Sari Melati 12 → Ratna
 Kenanga 8; "berikutnya" → Budi; "sudah diantar #2" → berikutnya jadi
 Sari; order susulan Dewi (Blok C) masuk paling belakang.
 
+## Sisi lain (semua digarap 5 Nov 22:50–23:00)
+
+- **Harga/stok harian** — `atur_harga_stok` (tukang sayur saja): "cabai
+  merah naik 55 ribu, stok kangkung 20". Harga di daftar_harga sama untuk
+  semua warga.
+- **Singkatan warga** — alias di `_cari_item`: bamer, baput, cabe, rawit,
+  telor, dll. langsung ketemu itemnya.
+- **Ganti/batal** — `ubah_pesanan` / `batalkan_pesanan` untuk pesanan yang
+  masih menunggu ACC (cocok nama pemilik; warga lain tidak bisa batalkan
+  pesanan orang). Agen juga menggabungkan order susulan ke pesanan yang
+  masih menunggu kalau warga setuju.
+- **Komplain** — `catat_komplain` + `daftar_komplain` (tukang sayur).
+- **Bayar** — `tandai_lunas(pesanan_id, metode)` (tunai/transfer/qris,
+  tukang sayur saja); `lapor_bayar` warga → status "lapor transfer",
+  TIDAK otomatis lunas sebelum verifikasi; `tandai_bon` + jatuh tempo
+  (tetap masuk tagihan); `hitung_kembalian`.
+- **Titip** — `tambah_catatan` ("titip ke Bu Sari") tampil di rute.
+- **Libur & batas order** — `atur_status_toko` (buka/libur + pesan);
+  kalau libur, pesanan baru ditolak dengan pesan tukang sayur.
+  `atur_cutoff` (default 07:00): pesanan setelah jam itu otomatis
+  bertanggal besok (`untuk_besok=true`).
+- **Privasi** — alamat/nomor warga lain tidak pernah disebut ke warga;
+  rute lengkap hanya untuk tukang sayur. Perintah vendor dienforce di
+  `_execute` (bukan cuma prompt): warga yang minta ACC/lunas/ubah harga
+  ditolak sistem.
+- **Backup & biaya** — `buat_backup` (JSON lengkap ke data/backup-*),
+  `cek_biaya` (panggilan + token per hari; harga Rupiah tidak ditampilkan
+  karena tarif berubah). Token dicatat otomatis tiap balasan model.
+
+Terverifikasi end-to-end via web app (5 Nov 22:57): update harga, ganti,
+komplain, lapor bayar → lunas, bon, titip, libur → tolak pesanan, buka
+lagi, backup, biaya (54 panggilan / 302.380 token).
+
+CATATAN: server web lama sempat tetap melayani saat restart (kill by PID
+kena shell sendiri) — matikan berdasarkan PORT (`fuser -k 8001/tcp`)
+lalu verifikasi PID baru sebelum tes.
+
 ## Cara menjalankan (reproduce demo)
 
 ### 0. Prasyarat
