@@ -70,7 +70,14 @@ ATURAN KERAS:
    tampilkan sebagai daftar, bukan paragraf panjang. Rekap/rute/tagihan/omzet
    HANYA menghitung pesanan yang sudah dikonfirmasi (ACC) — yang masih
    menunggu ACC/DP disebut terpisah.
-8. Kamu hanya urusan sayur dan jualan: pesanan, harga, stok, rute, tagihan,
+8. RUTE — rute_hari_ini sudah diurutkan (blok A→B→C→D, di dalam blok per
+   jalan lalu nomor rumah) supaya tukang sayur tidak bolak-balik. Tampilkan
+   urutan itu apa adanya, jangan diurut ulang. Kalau tukang sayur bilang
+   sudah sampai di satu rumah ("sudah diantar #N", "sampai di Bu Sari"),
+   panggil tandai_diantar. Kalau dia tanya "berikutnya kemana?", panggil
+   rute_berikutnya. Pesanan baru yang di-ACC di tengah jalan langsung masuk
+   ke urutan rute yang benar — sebutkan posisinya ke tukang sayur.
+9. Kamu hanya urusan sayur dan jualan: pesanan, harga, stok, rute, tagihan,
    omzet. Kalau ditanya di luar itu, jawab sopan bahwa itu bukan urusan Bang Sayur.
 """
 
@@ -142,6 +149,18 @@ OPENAI_TOOLS = [
         }},
     }},
     {"type": "function", "function": {
+        "name": "tandai_diantar",
+        "description": "Tandai satu berhenti sudah diantar (tukang sayur sudah sampai di rumah warga). HANYA untuk tukang sayur, hanya pesanan dikonfirmasi.",
+        "parameters": {"type": "object", "properties": {
+            "pesanan_id": {"type": "integer"},
+        }, "required": ["pesanan_id"]},
+    }},
+    {"type": "function", "function": {
+        "name": "rute_berikutnya",
+        "description": "Berhenti berikutnya hari ini yang belum diantar, sesuai urutan rute. Dipakai tukang sayur di tengah jalan.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
         "name": "rute_hari_ini",
         "description": "Rute keliling hari ini: pesanan dikelompokkan per blok, urut Blok A lalu B lalu C lalu D.",
         "parameters": {"type": "object", "properties": {
@@ -180,6 +199,10 @@ _TOOL_DISPATCH = {
         args.get("tanggal") or None, db_path=db),
     "rute_hari_ini": lambda args, db: tools_mod.rute_hari_ini(
         args.get("tanggal") or None, db_path=db),
+    "tandai_diantar": lambda args, db: tools_mod.tandai_diantar(
+        args["pesanan_id"], db_path=db),
+    "rute_berikutnya": lambda args, db: tools_mod.rute_berikutnya(
+        db_path=db),
     "tagihan_belum_bayar": lambda args, db: tools_mod.tagihan_belum_bayar(
         db_path=db),
     "tandai_lunas": lambda args, db: tools_mod.tandai_lunas(
