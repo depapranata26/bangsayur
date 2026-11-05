@@ -32,6 +32,21 @@ WEBAPP_DB = os.path.join(REPO_ROOT, "data", "webapp.db")
 PORT = int(os.environ.get("BANGSAYUR_WEB_PORT", "8001"))
 HISTORY = {}  # sender -> list[{role, content}], maks 10 giliran terakhir
 
+# Key Baseten: di VM ini pakai Secure Vault surrogate (agent.py). Di VPS,
+# agent.py fallback ke env BASENTEN_API_KEY — kalau env kosong, coba baca
+# file key yang sudah ada dari deploy MejaBahasa (~/mejabahasa/.baseten_key).
+if not os.environ.get("BASENTEN_API_KEY"):
+    for _kf in (os.path.expanduser("~/mejabahasa/.baseten_key"),
+                os.path.expanduser("~/.baseten_key")):
+        try:
+            with open(_kf) as _f:
+                _k = _f.read().strip()
+            if _k:
+                os.environ["BASENTEN_API_KEY"] = _k
+                break
+        except OSError:
+            continue
+
 
 def _history(sender):
     return HISTORY.setdefault(sender, [])
