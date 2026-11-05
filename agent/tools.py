@@ -376,27 +376,107 @@ def rekap_harian(tanggal=None, db_path=None):
 
 
 def rute_hari_ini(tanggal=None, db_path=None):
-    """Rute keliling hari ini: pesanan dikelompokkan per blok,
-    urut Blok A → B → C → D."""
+    """Rute keliling hari ini: pesanan dikonfirmasi, diurutkan supaya tukang
+    sayur tidak bolak-balik — Blok A → B → C → D, di dalam blok diurutkan
+    per jalan lalu nomor rumah ("Jl. Melati No. 5" sebelum "No. 12").
+
+    Tiap berhenti membawa status_antar ('belum'/'diantar'). Balasan juga
+    membawa 'berikutnya': berhenti terdekat yang belum diantar.
+    """
     init_db(db_path)
     tanggal = tanggal or date.today().isoformat()
     conn = connect(db_path)
     rows = conn.execute(
-        "SELECT p.id, pl.nama, pl.blok, pl.alamat, p.total, p.status_bayar "
+        "SELECT p.id, pl.nama, pl.blok, pl.alamat, p.total, p.status_bayar, "
+        "p.status_antar "
         "FROM pesanan p JOIN pelanggan pl ON pl.id = p.pelanggan_id "
         "WHERE p.tanggal = ? AND p.status = 'dikonfirmasi' ORDER BY p.id",
         (tanggal,)).fetchall()
     conn.close()
+
+    def _kunci(r):
+        blok_i = BLOK_RUTE.index(r["blok"]) if r["blok"] in BLOK_RUTE else 99
+        jalan, nomor = _parse_alamat(r["alamat"])
+        return (blok_i, jalan, nomor)
+
+    rows = sorted(rows, key=_kunci)
     grouped = {b: [] for b in BLOK_RUTE}
     for r in rows:
         grouped.setdefault(r["blok"], []).append({
             "pesanan_id": r["id"], "nama": r["nama"], "alamat": r["alamat"],
             "total_rp": _rupiah(r["total"]),
-            "status_bayar": r["status_bayar"]})
+            "status_bayar": r["status_bayar"],
+            "status_antar": r["status_antar"]})
     urutan = [{"blok": b, "berhenti": grouped[b]} for b in BLOK_RUTE
               if grouped[b]]
+    belum = [r for r in rows if r["status_antar"] == "belum"]
+    berikutnya = None
+    if belum:
+        r = belum[0]
+        berikutnya = {"pesanan_id": r["id"], "nama": r["nama"],
+                      "blok": r["blok"], "alamat": r["alamat"],
+                      "total_rp": _rupiah(r["total"]),
+                      "status_bayar": r["status_bayar"]}
     return {"ok": True, "tanggal": tanggal, "rute": urutan,
-            "total_berhenti": len(rows)}
+            "total_berhenti": len(rows),
+            "sudah_diantar": len(rows) - len(belum),
+            "belum_diantar": len(belum),
+            "berikutnya": berikutnya}
+
+
+def tandai_diantar(pesanan_id, db_path=None):
+    """Tandai satu berhenti sudah diantar (tukang sayur sudah sampai di
+    rumah warga). HANYA untuk tukang sayur, hanya pesanan dikonfirmasi."""
+    init_db(db_path)
+    conn = connect(db_path)
+    row = conn.execute(
+        "SELECT p.id, p.status, p.status_antar, pl.nama, p.total "
+        "FROM pesanan p JOIN pelanggan pl ON pl.id = p.pelanggan_id "
+        "WHERE p.id = ?", (pesanan_id,)).fetchone()
+    if not row:
+        conn.close()
+        return {"ok": False, "error": f"Pesanan #{pesanan_id} tidak ditemukan."}
+    if row["status"] != "dikonfirmasi":
+        conn.close()
+        return {"ok": False,
+                "error": f"Pesanan #{pesanan_id} statusnya '{row['status']}', "
+                         "hanya pesanan dikonfirmasi yang bisa ditandai diantar."}
+    if row["status_antar"] == "diantar":
+        conn.close()
+        return {"ok": False,
+                "error": f"Pesanan #{pesanan_id} sudah ditandai diantar."}
+    conn.execute("UPDATE pesanan SET status_antar = 'diantar' WHERE id = ?",
+                 (pesanan_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "pesanan_id": pesanan_id, "nama": row["nama"],
+            "total_rp": _rupiah(row["total"]), "status_antar": "diantar"}
+
+
+def rute_berikutnya(db_path=None):
+    """Berhenti berikutnya hari ini yang belum diantar (urut rute)."""
+    init_db(db_path)
+    r = rute_hari_ini(db_path=db_path)
+    if not r["ok"]:
+        return r
+    if r["berikutnya"] is None:
+        return {"ok": True, "selesai": True,
+                "pesan": "Semua berhenti hari ini sudah diantar."}
+    return {"ok": True, "selesai": False, "berikutnya": r["berikutnya"],
+            "sisa_berhenti": r["belum_diantar"],
+            "total_berhenti": r["total_berhenti"]}
+
+
+def _parse_alamat(alamat):
+    """"Jl. Melati No. 12" -> ("melati", 12). Dipakai mengurutkan berhenti
+    di dalam satu blok supaya tidak bolak-balik."""
+    import re
+    m = re.search(r"(?:jl\.?|jalan)\s+([a-zA-Z\s]+?)\s*(?:no\.?|nomor)?\s*(\d+)",
+                  alamat or "", re.IGNORECASE)
+    if m:
+        return (m.group(1).strip().lower(), int(m.group(2)))
+    angka = re.findall(r"\d+", alamat or "")
+    return ((alamat or "").lower(), int(angka[-1]) if angka else 9999)
 
 
 def tagihan_belum_bayar(db_path=None):
