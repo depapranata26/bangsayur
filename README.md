@@ -52,6 +52,24 @@ Warga (Mattermost) ──bridge──> Switch Core (room) ──SSE──> agent
 - **`agent/switch_client.py`** — client protokol Switch stdlib-only (urllib):
   registrasi agen, SSE events, heartbeat, ops.
 
+## Web app (tampilan WA)
+
+Buat warga yang tidak mau install aplikasi chat: buka link, langsung chat
+kayak WhatsApp. `webapp/` — server stdlib port 8001 + satu file HTML:
+
+```bash
+cd webapp
+python3 server.py   # http://127.0.0.1:8001 — DB demo: data/webapp.db (fresh)
+```
+
+- Header hijau + avatar 🥬 + status online, picker "Saya:" (Bu Sari, Pak Budi,
+  Bu Ratna, ...), bubble putih/hijau + jam, tombol cepat (Pesan sayur, Daftar
+  harga, Total hari ini, Rute, Belum bayar, Rekap omzet), indikator mengetik.
+- Backend-nya agen yang sama persis (`agent.run_turn` + tools SQLite) —
+  jawaban, harga, dan stok identik dengan demo Switch/Mattermost.
+- Terverifikasi 6/6 langkah via `/api/chat` (5 Nov 22:00): pesanan #1 Rp58.000,
+  #2 Rp40.000, rekap Rp98.000, rute Blok A, tagihan Rp98.000, omzet lunas Rp0.
+
 ## Cara menjalankan (reproduce demo)
 
 ### 0. Prasyarat
