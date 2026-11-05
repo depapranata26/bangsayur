@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS pelanggan (
     nama TEXT NOT NULL,
     blok TEXT NOT NULL,
     alamat TEXT DEFAULT '',
-    no_hp TEXT DEFAULT ''
+    no_hp TEXT DEFAULT '',
+    no_show INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'aktif'
 );
 CREATE TABLE IF NOT EXISTS pesanan (
     id INTEGER PRIMARY KEY,
@@ -31,6 +33,7 @@ CREATE TABLE IF NOT EXISTS pesanan (
     tanggal TEXT NOT NULL,
     total INTEGER NOT NULL DEFAULT 0,
     status_bayar TEXT NOT NULL DEFAULT 'belum',
+    status TEXT NOT NULL DEFAULT 'menunggu_acc',
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 CREATE TABLE IF NOT EXISTS pesanan_items (
@@ -87,9 +90,31 @@ def connect(db_path=None):
     return conn
 
 
+def _migrate(conn):
+    """Tambah kolom keamanan ke DB lama (tanpa hapus data).
+
+    pesanan.status: menunggu_acc | menunggu_dp | dikonfirmasi | ditolak
+        | tidak_diambil. Pesanan lama (sebelum sistem aman) dianggap sudah
+        dikonfirmasi agar rekap lama tetap terhitung.
+    pelanggan.no_show / pelanggan.status: 'aktif' | 'ditahan'
+        (ditahan = 2x tidak ambil pesanan -> wajib DP dulu).
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(pelanggan)")}
+    if "no_show" not in cols:
+        conn.execute("ALTER TABLE pelanggan ADD COLUMN no_show INTEGER NOT NULL DEFAULT 0")
+    if "status" not in cols:
+        conn.execute("ALTER TABLE pelanggan ADD COLUMN status TEXT NOT NULL DEFAULT 'aktif'")
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(pesanan)")}
+    if "status" not in cols:
+        conn.execute("ALTER TABLE pesanan ADD COLUMN status TEXT NOT NULL DEFAULT 'menunggu_acc'")
+        conn.execute("UPDATE pesanan SET status = 'dikonfirmasi' WHERE status = 'menunggu_acc'")
+    conn.commit()
+
+
 def init_db(db_path=None):
     conn = connect(db_path)
     conn.executescript(SCHEMA)
+    _migrate(conn)
     n = conn.execute("SELECT COUNT(*) c FROM items").fetchone()["c"]
     if n == 0:
         conn.executemany(
