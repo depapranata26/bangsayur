@@ -77,7 +77,41 @@ ATURAN KERAS:
    panggil tandai_diantar. Kalau dia tanya "berikutnya kemana?", panggil
    rute_berikutnya. Pesanan baru yang di-ACC di tengah jalan langsung masuk
    ke urutan rute yang benar — sebutkan posisinya ke tukang sayur.
-9. Kamu hanya urusan sayur dan jualan: pesanan, harga, stok, rute, tagihan,
+9. HARGA/STOK HARIAN — hanya tukang sayur yang boleh mengubah harga/stok.
+   Kalau tukang sayur bilang harga naik/turun atau stok berubah, LANGSUNG
+   panggil atur_harga_stok — JANGAN bilang tidak bisa atau suruh ke admin.
+   Harga di daftar_harga SAMA untuk semua warga, jangan bedakan.
+10. GANTI/BATAL — warga boleh ganti isi atau batalkan pesanannya sendiri
+    SELAMA masih menunggu ACC/DP. Kalau warga minta ganti/batal, LANGSUNG
+    panggil ubah_pesanan / batalkan_pesanan (cocokkan nama pemiliknya) —
+    JANGAN lempar ke tukang sayur. Setelah ACC, perubahan harus lewat
+    tukang sayur.
+11. KOMPLAIN — kalau warga mengeluh (sayur layu, timbangan kurang, salah
+    kirim), LANGSUNG panggil catat_komplain, minta maaf singkat, dan bilang
+    tukang sayur akan menindaklanjuti. Jangan tanya-tanya dulu. Tukang
+    sayur melihatnya lewat daftar_komplain.
+12. BAYAR — metode: tunai / transfer / qris. Warga yang bilang sudah
+    transfer: panggil lapor_bayar — JANGAN PERNAH panggil tandai_lunas untuk
+    warga (tandai_lunas HANYA tukang sayur; sistem memblokir kalau warga
+    yang minta). Bon hanya tukang sayur yang bisa (tandai_bon + jatuh
+    tempo). Kalau warga bayar tunai dan tanya kembalian, hitung dengan
+    hitung_kembalian.
+13. TITIP & CATATAN — "titip ke tetangga" atau info lain dicatat dengan
+    tambah_catatan dan tampil di rute. Jangan tambahkan catatan sendiri yang
+    tidak diminta warga/tukang sayur.
+14. LIBUR & BATAS ORDER — SEBELUM menerima pesanan baru, cek cek_status_toko.
+    Kalau libur: sampaikan pesannya ke warga dan JANGAN catat pesanan.
+    Pesanan yang masuk setelah jam cutoff otomatis jadi pesanan BESOK
+    (catat_pesanan mengembalikan untuk_besok=true) — beri tahu warga dengan
+    jelas. Atur cutoff/status libur hanya tukang sayur (atur_cutoff /
+    atur_status_toko).
+15. PRIVASI — JANGAN PERNAH sebutkan alamat atau nomor HP warga lain ke
+    warga yang bertanya. Rute lengkap (dengan alamat) HANYA untuk tukang
+    sayur.
+16. BIAYA & BACKUP — tukang sayur boleh tanya pemakaian AI (cek_biaya:
+    jumlah panggilan + token, harga Rupiah tidak ditampilkan karena tarif
+    berubah) dan minta backup data (buat_backup) tiap akhir minggu.
+17. Kamu hanya urusan sayur dan jualan: pesanan, harga, stok, rute, tagihan,
    omzet. Kalau ditanya di luar itu, jawab sopan bahwa itu bukan urusan Bang Sayur.
 """
 
@@ -129,6 +163,113 @@ OPENAI_TOOLS = [
         "parameters": {"type": "object", "properties": {
             "pesanan_id": {"type": "integer"},
         }, "required": ["pesanan_id"]},
+    }},
+    {"type": "function", "function": {
+        "name": "atur_harga_stok",
+        "description": "Update harga dan/atau stok satu item (habis belanja pasar). HANYA untuk tukang sayur.",
+        "parameters": {"type": "object", "properties": {
+            "nama_item": {"type": "string"},
+            "harga": {"type": "number"},
+            "stok": {"type": "number"},
+        }, "required": ["nama_item"]},
+    }},
+    {"type": "function", "function": {
+        "name": "ubah_pesanan",
+        "description": "Ganti isi pesanan yang masih menunggu ACC/DP. Total dihitung ulang. Setelah ACC tidak bisa diubah.",
+        "parameters": {"type": "object", "properties": {
+            "pesanan_id": {"type": "integer"},
+            "items": {"type": "array", "items": {"type": "object", "properties": {
+                "nama_item": {"type": "string"},
+                "qty": {"type": "number"}}, "required": ["nama_item", "qty"]}},
+        }, "required": ["pesanan_id", "items"]},
+    }},
+    {"type": "function", "function": {
+        "name": "batalkan_pesanan",
+        "description": "Batalkan pesanan yang masih menunggu ACC/DP. Kalau nama diisi, harus cocok dengan pemilik pesanan.",
+        "parameters": {"type": "object", "properties": {
+            "pesanan_id": {"type": "integer"},
+            "nama": {"type": "string"},
+        }, "required": ["pesanan_id"]},
+    }},
+    {"type": "function", "function": {
+        "name": "catat_komplain",
+        "description": "Catat keluhan warga (sayur layu, timbangan kurang, salah kirim) supaya tukang sayur menindaklanjuti.",
+        "parameters": {"type": "object", "properties": {
+            "nama": {"type": "string"},
+            "isi": {"type": "string"},
+            "pesanan_id": {"type": "integer"},
+        }, "required": ["nama", "isi"]},
+    }},
+    {"type": "function", "function": {
+        "name": "daftar_komplain",
+        "description": "Daftar keluhan warga (untuk tukang sayur).",
+        "parameters": {"type": "object", "properties": {
+            "status": {"type": "string"},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "tandai_bon",
+        "description": "Pesanan dibon (bayar nanti). HANYA untuk tukang sayur, hanya pesanan dikonfirmasi.",
+        "parameters": {"type": "object", "properties": {
+            "pesanan_id": {"type": "integer"},
+            "jatuh_tempo": {"type": "string", "description": "YYYY-MM-DD, opsional."},
+        }, "required": ["pesanan_id"]},
+    }},
+    {"type": "function", "function": {
+        "name": "hitung_kembalian",
+        "description": "Hitung kembalian tunai dari total tagihan dan uang yang dibayar warga.",
+        "parameters": {"type": "object", "properties": {
+            "total": {"type": "number"},
+            "uang_bayar": {"type": "number"},
+        }, "required": ["total", "uang_bayar"]},
+    }},
+    {"type": "function", "function": {
+        "name": "lapor_bayar",
+        "description": "Warga melapor sudah bayar (transfer/QRIS/tunai). Hanya menandai 'lapor bayar' — TIDAK otomatis lunas, tukang sayur harus verifikasi lalu tandai_lunas.",
+        "parameters": {"type": "object", "properties": {
+            "pesanan_id": {"type": "integer"},
+            "metode": {"type": "string", "enum": ["transfer", "qris", "tunai"]},
+        }, "required": ["pesanan_id", "metode"]},
+    }},
+    {"type": "function", "function": {
+        "name": "tambah_catatan",
+        "description": "Tambah catatan ke pesanan, mis. 'titip ke Bu Sari' atau 'timbangan 1,05 kg'. Tampil di rute.",
+        "parameters": {"type": "object", "properties": {
+            "pesanan_id": {"type": "integer"},
+            "catatan": {"type": "string"},
+        }, "required": ["pesanan_id", "catatan"]},
+    }},
+    {"type": "function", "function": {
+        "name": "cek_status_toko",
+        "description": "Status toko hari ini: buka/libur + pesan + jam batas order. Dicek SEBELUM menerima pesanan baru.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "atur_status_toko",
+        "description": "Tukang sayur mengumumkan libur/sakit atau buka lagi. HANYA untuk tukang sayur.",
+        "parameters": {"type": "object", "properties": {
+            "status": {"type": "string", "enum": ["buka", "libur"]},
+            "pesan": {"type": "string"},
+        }, "required": ["status"]},
+    }},
+    {"type": "function", "function": {
+        "name": "atur_cutoff",
+        "description": "Atur jam batas order (HH:MM). Pesanan setelah jam ini otomatis jadi pesanan besok. HANYA untuk tukang sayur.",
+        "parameters": {"type": "object", "properties": {
+            "jam": {"type": "string"},
+        }, "required": ["jam"]},
+    }},
+    {"type": "function", "function": {
+        "name": "buat_backup",
+        "description": "Salin seluruh isi database ke file JSON backup. Dipakai tukang sayur tiap akhir minggu / sebelum ganti HP.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "cek_biaya",
+        "description": "Pemakaian AI hari ini (jumlah panggilan + total token). Dipakai tukang sayur untuk memantau biaya jalan.",
+        "parameters": {"type": "object", "properties": {
+            "tanggal": {"type": "string", "description": "YYYY-MM-DD, kosongkan untuk hari ini."},
+        }},
     }},
     {"type": "function", "function": {
         "name": "catat_pesanan",
@@ -206,7 +347,34 @@ _TOOL_DISPATCH = {
     "tagihan_belum_bayar": lambda args, db: tools_mod.tagihan_belum_bayar(
         db_path=db),
     "tandai_lunas": lambda args, db: tools_mod.tandai_lunas(
-        args["pesanan_id"], db_path=db),
+        args["pesanan_id"], args.get("metode"), db_path=db),
+    "tandai_bon": lambda args, db: tools_mod.tandai_bon(
+        args["pesanan_id"], args.get("jatuh_tempo"), db_path=db),
+    "hitung_kembalian": lambda args, db: tools_mod.hitung_kembalian(
+        args["total"], args["uang_bayar"], db_path=db),
+    "lapor_bayar": lambda args, db: tools_mod.lapor_bayar(
+        args["pesanan_id"], args["metode"], db_path=db),
+    "tambah_catatan": lambda args, db: tools_mod.tambah_catatan(
+        args["pesanan_id"], args["catatan"], db_path=db),
+    "atur_harga_stok": lambda args, db: tools_mod.atur_harga_stok(
+        args["nama_item"], args.get("harga"), args.get("stok"), db_path=db),
+    "ubah_pesanan": lambda args, db: tools_mod.ubah_pesanan(
+        args["pesanan_id"], args["items"], db_path=db),
+    "batalkan_pesanan": lambda args, db: tools_mod.batalkan_pesanan(
+        args["pesanan_id"], args.get("nama"), db_path=db),
+    "catat_komplain": lambda args, db: tools_mod.catat_komplain(
+        args["nama"], args["isi"], args.get("pesanan_id"), db_path=db),
+    "daftar_komplain": lambda args, db: tools_mod.daftar_komplain(
+        args.get("status"), db_path=db),
+    "cek_status_toko": lambda args, db: tools_mod.cek_status_toko(
+        db_path=db),
+    "atur_status_toko": lambda args, db: tools_mod.atur_status_toko(
+        args["status"], args.get("pesan") or "", db_path=db),
+    "atur_cutoff": lambda args, db: tools_mod.atur_cutoff(
+        args["jam"], db_path=db),
+    "buat_backup": lambda args, db: tools_mod.buat_backup(db_path=db),
+    "cek_biaya": lambda args, db: tools_mod.cek_biaya(
+        args.get("tanggal"), db_path=db),
     "daftar_pelanggan": lambda args, db: tools_mod.daftar_pelanggan(
         args["nama"], args["blok"], args.get("alamat") or "", db_path=db),
     "konfirmasi_pesanan": lambda args, db: tools_mod.konfirmasi_pesanan(
@@ -224,7 +392,7 @@ _TOOL_DISPATCH = {
 _JSON_BLOCK = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 
 
-def _call_model(messages, use_tools=True, max_tokens=1024):
+def _call_model(messages, use_tools=True, max_tokens=1024, db_path=None):
     payload = {
         "model": MODEL,
         "messages": messages,
@@ -249,10 +417,36 @@ def _call_model(messages, use_tools=True, max_tokens=1024):
         detail = exc.read().decode("utf-8", "replace")[:500]
         raise RuntimeError(f"Baseten API error {exc.code}: {detail}") from exc
     msg = data["choices"][0]["message"]
+    # Catat pemakaian token (best-effort, jangan rusak balasan kalau gagal).
+    try:
+        usage = data.get("usage") or {}
+        if usage.get("total_tokens"):
+            tools_mod.catat_pemakaian(usage.get("prompt_tokens", 0),
+                                      usage.get("completion_tokens", 0),
+                                      db_path=db_path)
+    except Exception:
+        pass
     return msg.get("content") or "", msg.get("tool_calls") or []
 
 
-def _execute(name, args, db_path):
+# Tools yang HANYA boleh dijalankan atas perintah tukang sayur.
+# Dienforce di _execute (bukan cuma di prompt) supaya warga tidak bisa
+# menandai lunas sendiri / mengubah harga / ACC pesanan orang lewat chat.
+VENDOR_TOOLS = {
+    "konfirmasi_pesanan", "tandai_lunas", "tandai_bon",
+    "tandai_tidak_diambil", "tandai_diantar", "atur_harga_stok",
+    "atur_status_toko", "atur_cutoff", "daftar_komplain",
+    "daftar_menunggu_acc", "buat_backup", "cek_biaya", "rute_hari_ini",
+}
+VENDOR_SENDERS = {"warga", "tukang sayur", "bang sayur", "toko", "pemilik"}
+
+
+def _execute(name, args, db_path, sender=None):
+    if name in VENDOR_TOOLS:
+        s = (sender or "").strip().lower()
+        if s not in VENDOR_SENDERS:
+            return {"error": "Hanya tukang sayur yang bisa melakukan ini. "
+                             "Kalau kamu warga, sampaikan ke tukang sayur ya."}
     fn = _TOOL_DISPATCH.get(name)
     if fn is None:
         return {"error": f"Tool '{name}' tidak dikenal."}
@@ -262,15 +456,25 @@ def _execute(name, args, db_path):
         return {"error": str(exc)}
 
 
-def run_turn(user_message, history=None, db_path=None, max_iterations=4):
-    """Satu giliran chat: kembalikan {reply, tool_calls, path}."""
+def run_turn(user_message, history=None, db_path=None, max_iterations=4,
+             sender=None):
+    """Satu giliran chat: kembalikan {reply, tool_calls, path}.
+
+    sender = nama pengirim ("Bu Sari", "Tukang Sayur", ...). Dipakai
+    _execute untuk memblokir tool khusus vendor kalau pengirimnya warga.
+    Kalau sender kosong, coba baca dari awalan pesan "Nama: isi".
+    """
+    if sender is None:
+        m = re.match(r"\s*([^:]{1,40}):\s", user_message or "")
+        sender = m.group(1).strip() if m else ""
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(history or [])
     messages.append({"role": "user", "content": user_message})
     executed = []
     path = "direct"
     for _ in range(max_iterations):
-        content, tool_calls = _call_model(messages, use_tools=True)
+        content, tool_calls = _call_model(messages, use_tools=True,
+                                          db_path=db_path)
         if tool_calls:
             path = "tool_calls"
             messages.append({"role": "assistant", "content": content,
@@ -281,7 +485,7 @@ def run_turn(user_message, history=None, db_path=None, max_iterations=4):
                     args = json.loads(fn.get("arguments") or "{}")
                 except json.JSONDecodeError:
                     args = {}
-                result = _execute(fn["name"], args, db_path)
+                result = _execute(fn["name"], args, db_path, sender=sender)
                 executed.append({"tool": fn["name"], "args": args,
                                  "result": result})
                 messages.append({
@@ -299,7 +503,7 @@ def run_turn(user_message, history=None, db_path=None, max_iterations=4):
             if action and action.get("action") in _TOOL_DISPATCH:
                 path = "json_fallback"
                 result = _execute(action["action"], action.get("args") or {},
-                                  db_path)
+                                  db_path, sender=sender)
                 executed.append({"tool": action["action"],
                                  "args": action.get("args") or {},
                                  "result": result})
