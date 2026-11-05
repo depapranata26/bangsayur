@@ -141,7 +141,8 @@ def main():
         print(f"[run] <{sender}> {body}", flush=True)
         history = read_history(client, room_id)
         try:
-            result = run_turn(f"{sender}: {body}", history=history)
+            result = run_turn(f"{sender}: {body}", history=history,
+                              sender=sender)
             reply = result.get("reply") or "Maaf, saya tidak mengerti."
         except Exception as e:
             print(f"[run] run_turn gagal: {e}", flush=True)
