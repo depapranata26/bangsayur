@@ -97,6 +97,23 @@ Terverifikasi end-to-end via web app (5 Nov 22:30): warga baru → daftar →
 YA → menunggu_acc → ACC → dikonfirmasi; tolak; 2x tidak diambil → ditahan
 → DP → ACC. Stok kembali utuh tiap tidak-diambil.
 
+## Rute (anti bolak-balik)
+
+`rute_hari_ini` mengurutkan berhenti: Blok A → B → C → D, di dalam blok
+per jalan lalu nomor rumah (`_parse_alamat`: "Jl. Melati No. 5" sebelum
+"No. 12"). Tiap berhenti membawa `status_antar` ('belum'/'diantar') plus
+`berikutnya` (berhenti terdekat yang belum diantar).
+
+- `tandai_diantar(pesanan_id)` — tukang sayur sudah sampai di rumah warga
+  (hanya pesanan dikonfirmasi, hanya dari tukang sayur).
+- `rute_berikutnya()` — berhenti berikutnya + sisa berhenti.
+- Pesanan yang di-ACC di tengah jalan langsung masuk urutan yang benar.
+
+Terverifikasi end-to-end via web app (5 Nov 22:45): 3 pesanan (Sari
+Melati 12 duluan) dirute jadi Budi Melati 5 → Sari Melati 12 → Ratna
+Kenanga 8; "berikutnya" → Budi; "sudah diantar #2" → berikutnya jadi
+Sari; order susulan Dewi (Blok C) masuk paling belakang.
+
 ## Cara menjalankan (reproduce demo)
 
 ### 0. Prasyarat
