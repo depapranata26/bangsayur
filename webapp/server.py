@@ -110,7 +110,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"error": "pesan kosong"}, 400)
         try:
             result = run_turn(f"{sender}: {message}",
-                              history=list(_history(sender)), db_path=WEBAPP_DB)
+                              history=list(_history(sender)), db_path=WEBAPP_DB,
+                              sender=sender)
             reply = result.get("reply") or "Maaf, saya tidak mengerti."
         except Exception as e:
             print(f"[web] run_turn gagal: {e}", flush=True)
