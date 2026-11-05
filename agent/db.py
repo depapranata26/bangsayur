@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS pesanan (
     total INTEGER NOT NULL DEFAULT 0,
     status_bayar TEXT NOT NULL DEFAULT 'belum',
     status TEXT NOT NULL DEFAULT 'menunggu_acc',
+    status_antar TEXT NOT NULL DEFAULT 'belum',
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 CREATE TABLE IF NOT EXISTS pesanan_items (
@@ -108,6 +109,8 @@ def _migrate(conn):
     if "status" not in cols:
         conn.execute("ALTER TABLE pesanan ADD COLUMN status TEXT NOT NULL DEFAULT 'menunggu_acc'")
         conn.execute("UPDATE pesanan SET status = 'dikonfirmasi' WHERE status = 'menunggu_acc'")
+    if "status_antar" not in cols:
+        conn.execute("ALTER TABLE pesanan ADD COLUMN status_antar TEXT NOT NULL DEFAULT 'belum'")
     conn.commit()
 
 
