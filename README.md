@@ -70,6 +70,33 @@ python3 server.py   # http://127.0.0.1:8001 — DB demo: data/webapp.db (fresh)
 - Terverifikasi 6/6 langkah via `/api/chat` (5 Nov 22:00): pesanan #1 Rp58.000,
   #2 Rp40.000, rekap Rp98.000, rute Blok A, tagihan Rp98.000, omzet lunas Rp0.
 
+## Sistem aman (anti order fiktif)
+
+Pesanan tidak pernah langsung jadi — ada 4 lapis:
+
+1. **Pelanggan dikenal dulu** — warga baru wajib daftar (nama + blok +
+   alamat) lewat `daftar_pelanggan` sebelum pesanannya dicatat.
+2. **Konfirmasi** — agen mengulang ringkasan + total, pesanan baru dicatat
+   setelah warga balas YA.
+3. **ACC tukang sayur** — pesanan masuk status `menunggu_acc`; stok baru
+   berkurang dan pesanan baru masuk rekap/rute/tagihan setelah tukang sayur
+   ACC (`konfirmasi_pesanan`, aksi `acc`/`tolak`). Perintah vendor HANYA
+   dari pengirim tukang sayur.
+4. **Catatan hitam** — `tandai_tidak_diambil`: stok dikembalikan, no_show
+   pelanggan +1; 2x tidak ambil → pelanggan `ditahan`, order berikutnya
+   masuk `menunggu_dp` dan baru jalan setelah tukang sayur konfirmasi
+   DP masuk (`dp_masuk`).
+
+Status pesanan: `menunggu_acc` → `dikonfirmasi` / `ditolak`;
+`menunggu_dp` → `menunggu_acc`; `dikonfirmasi` → `tidak_diambil`.
+Rekap/rute/tagihan/omzet HANYA menghitung `dikonfirmasi`; yang menunggu
+tampil terpisah. DB lama dimigrasi otomatis (`db._migrate`): pesanan lama
+dianggap `dikonfirmasi`.
+
+Terverifikasi end-to-end via web app (5 Nov 22:30): warga baru → daftar →
+YA → menunggu_acc → ACC → dikonfirmasi; tolak; 2x tidak diambil → ditahan
+→ DP → ACC. Stok kembali utuh tiap tidak-diambil.
+
 ## Cara menjalankan (reproduce demo)
 
 ### 0. Prasyarat
