@@ -1,0 +1,72 @@
+# BangSayur — deployment Switch + Mattermost via Docker Compose.
+#
+# Cara pakai (butuh Docker):
+#   cp .env.example .env   # lalu isi password/secret
+#   docker compose up -d
+#   # setup bridge + user demo: jalankan demo/setup_bridge.sh dengan
+#   # SWITCH_URL/MATTERMOST_URL diarahkan ke service compose.
+#
+# Catatan: di VM pengembangan proyek ini Docker TIDAK tersedia, jadi yang
+# dijalankan adalah proses bare (Postgres apt + binary Mattermost +
+# `uv run` switch-core). Lihat README.md bagian "Cara menjalankan".
+# File ini mendokumentasikan deployment yang direkomendasikan, mengikuti
+# deploy/local/docker-compose.yml dari repo Switch.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${DB_NAME:-switch}
+      POSTGRES_USER: ${DB_OWNER:-postgres}
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?set in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_OWNER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  switch-core:
+    # Ganti dengan image Switch yang sesuai, atau build dari repo Switch:
+    #   https://github.com/sandbox-quantum/switch
+    image: switch-core:local
+    build:
+      context: ../switch-src
+      dockerfile: deploy/local/Dockerfile.switch-core
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${DB_USER:-switch_app}
+      DB_PASSWORD: ${DB_PASSWORD:?set in .env}
+      DB_NAME: ${DB_NAME:-switch}
+      DB_OWNER: ${DB_OWNER:-postgres}
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:?set in .env}
+      GATEWAY_ADMIN_EMAIL: ${GATEWAY_ADMIN_EMAIL:-admin@switch.local}
+      GATEWAY_ADMIN_PASSWORD: ${GATEWAY_ADMIN_PASSWORD:?set in .env}
+      AGENT_REGISTRATION_TOKEN: ${AGENT_REGISTRATION_TOKEN:?set in .env}
+      GATEWAY_COOKIE_SECURE: "false"
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mattermost:
+    image: mattermost/mattermost-team-edition:11.9.0
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: postgres://mmuser:${MM_PASSWORD:?set in .env}@postgres:5432/mattermost?sslmode=disable&connect_timeout=10
+      MM_SERVICESETTINGS_SITEURL: http://localhost:8065
+      MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "true"
+      MM_TEAMSETTINGS_ENABLEOPENSERVER: "true"
+      MM_SERVICESETTINGS_ENABLEONBOARDINGFLOW: "false"
+      MM_LOGSETTINGS_ENABLEDIAGNOSTICS: "false"
+    ports:
+      - "127.0.0.1:8065:8065"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
