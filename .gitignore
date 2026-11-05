@@ -1,0 +1,6 @@
+.switch-agent.json
+.room.json
+.env
+*.db
+__pycache__/
+demo/venv/
