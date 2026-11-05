@@ -35,6 +35,29 @@ CREATE TABLE IF NOT EXISTS pesanan (
     status_bayar TEXT NOT NULL DEFAULT 'belum',
     status TEXT NOT NULL DEFAULT 'menunggu_acc',
     status_antar TEXT NOT NULL DEFAULT 'belum',
+    metode_bayar TEXT NOT NULL DEFAULT '',
+    lapor_bayar TEXT NOT NULL DEFAULT '',
+    jatuh_tempo TEXT NOT NULL DEFAULT '',
+    catatan TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+CREATE TABLE IF NOT EXISTS komplain (
+    id INTEGER PRIMARY KEY,
+    pesanan_id INTEGER,
+    pelanggan_id INTEGER,
+    isi TEXT NOT NULL,
+    tanggal TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'baru'
+);
+CREATE TABLE IF NOT EXISTS pengaturan (
+    kunci TEXT PRIMARY KEY,
+    nilai TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS biaya (
+    id INTEGER PRIMARY KEY,
+    tanggal TEXT NOT NULL,
+    token_masuk INTEGER NOT NULL DEFAULT 0,
+    token_keluar INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 CREATE TABLE IF NOT EXISTS pesanan_items (
@@ -111,6 +134,14 @@ def _migrate(conn):
         conn.execute("UPDATE pesanan SET status = 'dikonfirmasi' WHERE status = 'menunggu_acc'")
     if "status_antar" not in cols:
         conn.execute("ALTER TABLE pesanan ADD COLUMN status_antar TEXT NOT NULL DEFAULT 'belum'")
+    for _col, _ddl in (
+        ("metode_bayar", "TEXT NOT NULL DEFAULT ''"),
+        ("lapor_bayar", "TEXT NOT NULL DEFAULT ''"),
+        ("jatuh_tempo", "TEXT NOT NULL DEFAULT ''"),
+        ("catatan", "TEXT NOT NULL DEFAULT ''"),
+    ):
+        if _col not in cols:
+            conn.execute(f"ALTER TABLE pesanan ADD COLUMN {_col} {_ddl}")
     conn.commit()
 
 
