@@ -46,18 +46,31 @@ ATURAN KERAS:
 1. Harga dan stok HANYA dari tools (database). JANGAN PERNAH mengarang harga,
    stok, atau nama sayur. Kalau warga menyebut sayur yang tidak ada di daftar,
    bilang tidak ada dan tawarkan yang mirip dari daftar_harga.
-2. Sebelum mencatat pesanan, pastikan ada: nama pemesan, blok (A/B/C/D), dan
-   item + jumlah. Cek dulu cari_pelanggan — kalau pemesan sudah dikenal,
-   pakai bloknya dari database, jangan tanya lagi. Kalau ada yang kurang,
-   tanya dulu — jangan menebak.
-3. Setiap pesanan yang dicatat status bayarnya 'belum' sampai ada yang bilang
+2. ALUR PESANAN (WAJIB, urut):
+   a. cari_pelanggan dulu. Kalau TIDAK dikenal: minta nama lengkap + blok +
+      alamat, lalu daftar_pelanggan. JANGAN catat pesanan sebelum terdaftar.
+   b. Ulangi ringkasan pesanan + total, lalu minta konfirmasi:
+      "Betul? Balas YA." JANGAN panggil catat_pesanan sebelum warga balas YA
+      (atau kata setuju yang jelas).
+   c. Setelah YA, panggil catat_pesanan. Pesanan masuk status MENUNGGU ACC —
+      beri tahu warga: "Pesanan #N sudah dicatat, menunggu ACC Bang Sayur."
+   d. Kalau pelanggan statusnya 'ditahan' (atau no_show >= 2): JANGAN catat
+      biasa. Bilang ordernya perlu DP dulu (transfer), pesanan masuk status
+      menunggu_dp dan baru jalan setelah Bang Sayur konfirmasi DP masuk.
+3. PERINTAH VENDOR — acc / tolak / dp_masuk / tidak_diambil / lunas HANYA
+   dari Bang Sayur sendiri (pengirim "warga" / "Tukang Sayur"). Kalau warga
+   biasa yang minta ACC atau lunas, tolak sopan: itu urusan tukang sayur.
+   Untuk ACC: cek dulu daftar_menunggu_acc supaya tahu nomor pesanannya.
+4. Setiap pesanan yang dicatat status bayarnya 'belum' sampai ada yang bilang
    sudah bayar (tandai_lunas). Jangan pernah bilang "sudah lunas" tanpa tool.
-4. Jangan pernah mengarang nomor pesanan, total, atau omzet — hanya dari hasil tool.
-5. Kalau stok tidak cukup, bilang sisanya berapa dan tawarkan jumlah yang tersedia
+5. Jangan pernah mengarang nomor pesanan, total, atau omzet — hanya dari hasil tool.
+6. Kalau stok tidak cukup, bilang sisanya berapa dan tawarkan jumlah yang tersedia
    atau sayur pengganti.
-6. Jawab singkat dan padat, cocok dibaca di HP. Kalau ditanya rekap/rute/tagihan,
-   tampilkan sebagai daftar, bukan paragraf panjang.
-7. Kamu hanya urusan sayur dan jualan: pesanan, harga, stok, rute, tagihan,
+7. Jawab singkat dan padat, cocok dibaca di HP. Kalau ditanya rekap/rute/tagihan,
+   tampilkan sebagai daftar, bukan paragraf panjang. Rekap/rute/tagihan/omzet
+   HANYA menghitung pesanan yang sudah dikonfirmasi (ACC) — yang masih
+   menunggu ACC/DP disebut terpisah.
+8. Kamu hanya urusan sayur dan jualan: pesanan, harga, stok, rute, tagihan,
    omzet. Kalau ditanya di luar itu, jawab sopan bahwa itu bukan urusan Bang Sayur.
 """
 
@@ -75,8 +88,44 @@ OPENAI_TOOLS = [
         }, "required": ["nama"]},
     }},
     {"type": "function", "function": {
+        "name": "daftar_pelanggan",
+        "description": "Daftarkan warga baru yang belum dikenal (nama + blok + alamat). WAJIB dipanggil sebelum mencatat pesanan pertama warga baru.",
+        "parameters": {"type": "object", "properties": {
+            "nama": {"type": "string"},
+            "blok": {"type": "string", "enum": ["A", "B", "C", "D"]},
+            "alamat": {"type": "string"},
+        }, "required": ["nama", "blok"]},
+    }},
+    {"type": "function", "function": {
+        "name": "konfirmasi_pesanan",
+        "description": "Keputusan tukang sayur atas satu pesanan. HANYA untuk tukang sayur (pengirim warga/Tukang Sayur). aksi: acc (setujui, stok berkurang), tolak, dp_masuk (DP sudah diterima, lanjut ke menunggu ACC).",
+        "parameters": {"type": "object", "properties": {
+            "pesanan_id": {"type": "integer"},
+            "aksi": {"type": "string", "enum": ["acc", "tolak", "dp_masuk"]},
+        }, "required": ["pesanan_id", "aksi"]},
+    }},
+    {"type": "function", "function": {
+        "name": "tandai_tidak_diambil",
+        "description": "Tukang sayur sudah sampai tapi warga tidak mengambil pesanan. Stok dikembalikan, no_show pelanggan +1; 2x -> pelanggan ditahan (wajib DP). HANYA untuk tukang sayur.",
+        "parameters": {"type": "object", "properties": {
+            "pesanan_id": {"type": "integer"},
+        }, "required": ["pesanan_id"]},
+    }},
+    {"type": "function", "function": {
+        "name": "daftar_menunggu_acc",
+        "description": "Daftar pesanan yang menunggu keputusan tukang sayur (ACC / DP / tolak). Dipakai tukang sayur sebelum ACC.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "cek_pesanan",
+        "description": "Detail satu pesanan: status, pelanggan, item, total, status bayar.",
+        "parameters": {"type": "object", "properties": {
+            "pesanan_id": {"type": "integer"},
+        }, "required": ["pesanan_id"]},
+    }},
+    {"type": "function", "function": {
         "name": "catat_pesanan",
-        "description": "Catat pesanan baru warga. Harga dihitung dari database, stok dicek dan dikurangi otomatis.",
+        "description": "Catat pesanan baru SETELAH warga konfirmasi YA. Pelanggan HARUS sudah terdaftar. Pesanan masuk status menunggu_acc (atau menunggu_dp kalau pelanggan ditahan). Stok TIDAK berkurang di sini — baru berkurang saat tukang sayur ACC.",
         "parameters": {"type": "object", "properties": {
             "nama": {"type": "string", "description": "Nama pemesan."},
             "blok": {"type": "string", "enum": ["A", "B", "C", "D"]},
@@ -134,6 +183,16 @@ _TOOL_DISPATCH = {
     "tagihan_belum_bayar": lambda args, db: tools_mod.tagihan_belum_bayar(
         db_path=db),
     "tandai_lunas": lambda args, db: tools_mod.tandai_lunas(
+        args["pesanan_id"], db_path=db),
+    "daftar_pelanggan": lambda args, db: tools_mod.daftar_pelanggan(
+        args["nama"], args["blok"], args.get("alamat") or "", db_path=db),
+    "konfirmasi_pesanan": lambda args, db: tools_mod.konfirmasi_pesanan(
+        args["pesanan_id"], args["aksi"], db_path=db),
+    "tandai_tidak_diambil": lambda args, db: tools_mod.tandai_tidak_diambil(
+        args["pesanan_id"], db_path=db),
+    "daftar_menunggu_acc": lambda args, db: tools_mod.daftar_menunggu_acc(
+        db_path=db),
+    "cek_pesanan": lambda args, db: tools_mod.cek_pesanan(
         args["pesanan_id"], db_path=db),
     "rekap_omzet": lambda args, db: tools_mod.rekap_omzet(
         args.get("mulai"), args.get("sampai"), db_path=db),
