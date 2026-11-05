@@ -57,20 +57,62 @@ def cari_pelanggan(nama, db_path=None):
     # pelanggan "Bu Sari".
     norm = (nama or "").strip().lower().replace(" ", "")
     rows = conn.execute(
-        "SELECT id, nama, blok, alamat, no_hp FROM pelanggan "
+        "SELECT id, nama, blok, alamat, no_hp, no_show, status FROM pelanggan "
         "WHERE replace(lower(nama), ' ', '') LIKE ? ORDER BY nama",
         ("%" + norm + "%",),
     ).fetchall()
     conn.close()
     return {"ok": True, "ditemukan": len(rows), "pelanggan": [
         {"id": r["id"], "nama": r["nama"], "blok": r["blok"],
-         "alamat": r["alamat"], "no_hp": r["no_hp"]} for r in rows]}
+         "alamat": r["alamat"], "no_hp": r["no_hp"],
+         "no_show": r["no_show"], "status": r["status"]} for r in rows]}
+
+
+def daftar_pelanggan(nama, blok, alamat="", db_path=None):
+    """Daftarkan pelanggan baru (warga yang belum dikenal).
+
+    Dipakai SEBELUM mencatat pesanan pertama warga baru. Kalau nama sudah
+    ada di blok yang sama, kembalikan data yang sudah ada.
+    """
+    init_db(db_path)
+    nama = (nama or "").strip()
+    blok = (blok or "").strip().upper()
+    if not nama:
+        return {"ok": False, "error": "Nama pelanggan wajib diisi."}
+    if blok not in BLOK_RUTE:
+        return {"ok": False,
+                "error": f"Blok tidak dikenal. Blok yang ada: {', '.join(BLOK_RUTE)}."}
+    conn = connect(db_path)
+    try:
+        pel = conn.execute(
+            "SELECT id, nama, blok, alamat, no_show, status FROM pelanggan "
+            "WHERE lower(nama) = ? AND blok = ?",
+            (nama.lower(), blok)).fetchone()
+        if pel:
+            return {"ok": True, "sudah_ada": True, "id": pel["id"],
+                    "nama": pel["nama"], "blok": pel["blok"],
+                    "alamat": pel["alamat"], "no_show": pel["no_show"],
+                    "status": pel["status"]}
+        cur = conn.execute(
+            "INSERT INTO pelanggan (nama, blok, alamat) VALUES (?, ?, ?)",
+            (nama, blok, alamat or ""))
+        conn.commit()
+        return {"ok": True, "sudah_ada": False, "id": cur.lastrowid,
+                "nama": nama, "blok": blok, "alamat": alamat or "",
+                "no_show": 0, "status": "aktif"}
+    finally:
+        conn.close()
 
 
 def catat_pesanan(nama, blok, items, db_path=None):
-    """Catat pesanan baru. items = [{nama_item, qty}]. Harga dari DB, stok dicek.
+    """Catat pesanan baru sebagai MENUNGGU ACC (belum final).
 
-    Pelanggan baru dibuat otomatis. Stok berkurang. Status bayar = 'belum'.
+    Syarat: pelanggan HARUS sudah terdaftar (daftar_pelanggan dulu).
+    Pelanggan 'ditahan' (2x tidak ambil pesanan) -> status 'menunggu_dp':
+    order hanya jalan setelah tukang sayur konfirmasi DP masuk.
+    Stok dicek tapi TIDAK dikurangi di sini — stok baru berkurang saat
+    tukang sayur ACC (konfirmasi_pesanan). Jadi order fiktif yang tidak
+    pernah di-ACC tidak menggerogoti stok.
     """
     init_db(db_path)
     conn = connect(db_path)
@@ -84,6 +126,14 @@ def catat_pesanan(nama, blok, items, db_path=None):
                     "error": f"Blok tidak dikenal. Blok yang ada: {', '.join(BLOK_RUTE)}."}
         if not items:
             return {"ok": False, "error": "Pesanan kosong."}
+        pel = conn.execute(
+            "SELECT id, nama, blok, no_show, status FROM pelanggan "
+            "WHERE lower(nama) = ? AND blok = ?",
+            (nama.lower(), blok)).fetchone()
+        if not pel:
+            return {"ok": False, "error": "PELANGGAN_BELUM_TERDAFTAR",
+                    "pesan": f"{nama} belum terdaftar. Daftarkan dulu "
+                             "(nama + blok + alamat) sebelum mencatat pesanan."}
         resolved = []
         total = 0
         for it in items:
@@ -106,54 +156,208 @@ def catat_pesanan(nama, blok, items, db_path=None):
                                  f"tidak cukup untuk {qty} {row['satuan']}."}
             resolved.append((row, qty))
             total += int(row["harga"] * qty)
-        pel = conn.execute(
-            "SELECT id FROM pelanggan WHERE lower(nama) = ? AND blok = ?",
-            (nama.lower(), blok)).fetchone()
-        if pel:
-            pelanggan_id = pel["id"]
-        else:
-            cur = conn.execute(
-                "INSERT INTO pelanggan (nama, blok) VALUES (?, ?)", (nama, blok))
-            pelanggan_id = cur.lastrowid
+        status = "menunggu_dp" if pel["status"] == "ditahan" else "menunggu_acc"
         today = date.today().isoformat()
         cur = conn.execute(
-            "INSERT INTO pesanan (pelanggan_id, tanggal, total, status_bayar) "
-            "VALUES (?, ?, ?, 'belum')", (pelanggan_id, today, total))
+            "INSERT INTO pesanan (pelanggan_id, tanggal, total, status_bayar, status) "
+            "VALUES (?, ?, ?, 'belum', ?)", (pel["id"], today, total, status))
         pesanan_id = cur.lastrowid
         for row, qty in resolved:
             conn.execute(
                 "INSERT INTO pesanan_items (pesanan_id, item_id, qty, harga_satuan) "
                 "VALUES (?, ?, ?, ?)", (pesanan_id, row["id"], qty, row["harga"]))
-            conn.execute("UPDATE items SET stok = stok - ? WHERE id = ?",
-                         (qty, row["id"]))
         conn.commit()
-        return {"ok": True, "pesanan_id": pesanan_id, "nama": nama,
+        return {"ok": True, "pesanan_id": pesanan_id, "nama": pel["nama"],
                 "blok": blok, "total": total, "total_rp": _rupiah(total),
                 "items": [{"nama": r["nama"], "qty": q,
                            "satuan": r["satuan"],
                            "subtotal_rp": _rupiah(int(r["harga"] * q))}
                           for r, q in resolved],
-                "status_bayar": "belum"}
+                "status": status, "status_bayar": "belum",
+                "no_show_pelanggan": pel["no_show"]}
     finally:
         conn.close()
 
 
+def konfirmasi_pesanan(pesanan_id, aksi, db_path=None):
+    """Keputusan tukang sayur atas satu pesanan. HANYA untuk tukang sayur.
+
+    aksi:
+    - 'acc': menunggu_acc -> dikonfirmasi. Stok dicek ulang lalu dikurangi.
+    - 'tolak': menunggu_acc/menunggu_dp -> ditolak (stok tidak berubah).
+    - 'dp_masuk': menunggu_dp -> menunggu_acc (DP sudah diterima).
+    """
+    init_db(db_path)
+    aksi = (aksi or "").strip().lower()
+    if aksi not in ("acc", "tolak", "dp_masuk"):
+        return {"ok": False, "error": "Aksi harus: acc, tolak, atau dp_masuk."}
+    conn = connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT p.id, p.status, p.total, pl.nama FROM pesanan p "
+            "JOIN pelanggan pl ON pl.id = p.pelanggan_id WHERE p.id = ?",
+            (pesanan_id,)).fetchone()
+        if not row:
+            return {"ok": False, "error": f"Pesanan #{pesanan_id} tidak ditemukan."}
+        status = row["status"]
+        if aksi == "acc":
+            if status != "menunggu_acc":
+                return {"ok": False,
+                        "error": f"Pesanan #{pesanan_id} statusnya '{status}', "
+                                 "tidak bisa di-ACC."}
+            items = conn.execute(
+                "SELECT pi.qty, i.id, i.nama, i.stok, i.satuan "
+                "FROM pesanan_items pi JOIN items i ON i.id = pi.item_id "
+                "WHERE pi.pesanan_id = ?", (pesanan_id,)).fetchall()
+            for it in items:
+                if it["qty"] > it["stok"]:
+                    return {"ok": False,
+                            "error": f"Stok {it['nama']} tinggal {it['stok']} "
+                                     f"{it['satuan']}, tidak cukup untuk pesanan ini."}
+            for it in items:
+                conn.execute("UPDATE items SET stok = stok - ? WHERE id = ?",
+                             (it["qty"], it["id"]))
+            conn.execute("UPDATE pesanan SET status = 'dikonfirmasi' WHERE id = ?",
+                         (pesanan_id,))
+            conn.commit()
+            return {"ok": True, "pesanan_id": pesanan_id, "nama": row["nama"],
+                    "total_rp": _rupiah(row["total"]), "status": "dikonfirmasi"}
+        if aksi == "tolak":
+            if status not in ("menunggu_acc", "menunggu_dp"):
+                return {"ok": False,
+                        "error": f"Pesanan #{pesanan_id} statusnya '{status}', "
+                                 "tidak bisa ditolak."}
+            conn.execute("UPDATE pesanan SET status = 'ditolak' WHERE id = ?",
+                         (pesanan_id,))
+            conn.commit()
+            return {"ok": True, "pesanan_id": pesanan_id, "nama": row["nama"],
+                    "total_rp": _rupiah(row["total"]), "status": "ditolak"}
+        # dp_masuk
+        if status != "menunggu_dp":
+            return {"ok": False,
+                    "error": f"Pesanan #{pesanan_id} statusnya '{status}', "
+                             "bukan menunggu DP."}
+        conn.execute("UPDATE pesanan SET status = 'menunggu_acc' WHERE id = ?",
+                     (pesanan_id,))
+        conn.commit()
+        return {"ok": True, "pesanan_id": pesanan_id, "nama": row["nama"],
+                "total_rp": _rupiah(row["total"]), "status": "menunggu_acc"}
+    finally:
+        conn.close()
+
+
+def tandai_tidak_diambil(pesanan_id, db_path=None):
+    """Tukang sayur sudah sampai tapi warga tidak mengambil pesanan.
+
+    Stok dikembalikan, pesanan jadi 'tidak_diambil', no_show pelanggan +1.
+    no_show >= 2 -> pelanggan 'ditahan' (order berikutnya wajib DP dulu).
+    HANYA untuk tukang sayur.
+    """
+    init_db(db_path)
+    conn = connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT p.id, p.status, p.total, pl.id AS pel_id, pl.nama, "
+            "pl.no_show FROM pesanan p "
+            "JOIN pelanggan pl ON pl.id = p.pelanggan_id WHERE p.id = ?",
+            (pesanan_id,)).fetchone()
+        if not row:
+            return {"ok": False, "error": f"Pesanan #{pesanan_id} tidak ditemukan."}
+        if row["status"] != "dikonfirmasi":
+            return {"ok": False,
+                    "error": f"Pesanan #{pesanan_id} statusnya '{row['status']}', "
+                             "hanya pesanan dikonfirmasi yang bisa ditandai tidak diambil."}
+        items = conn.execute(
+            "SELECT pi.qty, i.id FROM pesanan_items pi "
+            "JOIN items i ON i.id = pi.item_id WHERE pi.pesanan_id = ?",
+            (pesanan_id,)).fetchall()
+        for it in items:
+            conn.execute("UPDATE items SET stok = stok + ? WHERE id = ?",
+                         (it["qty"], it["id"]))
+        conn.execute("UPDATE pesanan SET status = 'tidak_diambil' WHERE id = ?",
+                     (pesanan_id,))
+        no_show = (row["no_show"] or 0) + 1
+        status = "ditahan" if no_show >= 2 else "aktif"
+        conn.execute("UPDATE pelanggan SET no_show = ?, status = ? WHERE id = ?",
+                     (no_show, status, row["pel_id"]))
+        conn.commit()
+        return {"ok": True, "pesanan_id": pesanan_id, "nama": row["nama"],
+                "total_rp": _rupiah(row["total"]), "status": "tidak_diambil",
+                "no_show": no_show, "status_pelanggan": status}
+    finally:
+        conn.close()
+
+
+def daftar_menunggu_acc(db_path=None):
+    """Daftar pesanan yang menunggu keputusan tukang sayur (ACC / DP / tolak)."""
+    init_db(db_path)
+    conn = connect(db_path)
+    rows = conn.execute(
+        "SELECT p.id, p.tanggal, p.total, p.status, pl.nama, pl.blok "
+        "FROM pesanan p JOIN pelanggan pl ON pl.id = p.pelanggan_id "
+        "WHERE p.status IN ('menunggu_acc', 'menunggu_dp') "
+        "ORDER BY p.id"
+    ).fetchall()
+    conn.close()
+    return {"ok": True, "jumlah": len(rows),
+            "menunggu": [{"pesanan_id": r["id"], "tanggal": r["tanggal"],
+                          "nama": r["nama"], "blok": r["blok"],
+                          "total_rp": _rupiah(r["total"]),
+                          "status": r["status"]} for r in rows]}
+
+
+def cek_pesanan(pesanan_id, db_path=None):
+    """Detail satu pesanan: status, pelanggan, item, total, status bayar."""
+    init_db(db_path)
+    conn = connect(db_path)
+    row = conn.execute(
+        "SELECT p.id, p.tanggal, p.total, p.status, p.status_bayar, "
+        "pl.nama, pl.blok, pl.alamat FROM pesanan p "
+        "JOIN pelanggan pl ON pl.id = p.pelanggan_id WHERE p.id = ?",
+        (pesanan_id,)).fetchone()
+    if not row:
+        conn.close()
+        return {"ok": False, "error": f"Pesanan #{pesanan_id} tidak ditemukan."}
+    items = conn.execute(
+        "SELECT i.nama, pi.qty, i.satuan, pi.harga_satuan "
+        "FROM pesanan_items pi JOIN items i ON i.id = pi.item_id "
+        "WHERE pi.pesanan_id = ?", (pesanan_id,)).fetchall()
+    conn.close()
+    return {"ok": True, "pesanan_id": row["id"], "tanggal": row["tanggal"],
+            "nama": row["nama"], "blok": row["blok"], "alamat": row["alamat"],
+            "total_rp": _rupiah(row["total"]), "status": row["status"],
+            "status_bayar": row["status_bayar"],
+            "items": [{"nama": i["nama"], "qty": i["qty"],
+                       "satuan": i["satuan"],
+                       "subtotal_rp": _rupiah(int(i["harga_satuan"] * i["qty"]))}
+                      for i in items]}
+
+
 def rekap_harian(tanggal=None, db_path=None):
     """Rekap pesanan hari ini (atau tanggal YYYY-MM-DD): jumlah pesanan,
-    total per item, omzet."""
+    total per item, omzet. HANYA pesanan 'dikonfirmasi' yang dihitung;
+    yang masih menunggu ACC/DP tampil terpisah supaya tukang sayur bisa
+    memutuskan."""
     init_db(db_path)
     tanggal = tanggal or date.today().isoformat()
     conn = connect(db_path)
     rows = conn.execute(
         "SELECT p.id, pl.nama, pl.blok, p.total, p.status_bayar "
         "FROM pesanan p JOIN pelanggan pl ON pl.id = p.pelanggan_id "
-        "WHERE p.tanggal = ? ORDER BY p.id", (tanggal,)).fetchall()
+        "WHERE p.tanggal = ? AND p.status = 'dikonfirmasi' ORDER BY p.id",
+        (tanggal,)).fetchall()
     per_item = conn.execute(
         "SELECT i.nama, i.satuan, SUM(pi.qty) qty, "
         "SUM(pi.qty * pi.harga_satuan) subtotal "
         "FROM pesanan_items pi JOIN pesanan p ON p.id = pi.pesanan_id "
-        "JOIN items i ON i.id = pi.item_id WHERE p.tanggal = ? "
+        "JOIN items i ON i.id = pi.item_id "
+        "WHERE p.tanggal = ? AND p.status = 'dikonfirmasi' "
         "GROUP BY i.id ORDER BY subtotal DESC", (tanggal,)).fetchall()
+    menunggu = conn.execute(
+        "SELECT p.id, pl.nama, pl.blok, p.total, p.status "
+        "FROM pesanan p JOIN pelanggan pl ON pl.id = p.pelanggan_id "
+        "WHERE p.tanggal = ? AND p.status IN ('menunggu_acc', 'menunggu_dp') "
+        "ORDER BY p.id", (tanggal,)).fetchall()
     conn.close()
     omzet = sum(r["total"] for r in rows)
     return {"ok": True, "tanggal": tanggal,
@@ -165,7 +369,10 @@ def rekap_harian(tanggal=None, db_path=None):
             "per_item": [{"nama": r["nama"], "qty": r["qty"],
                           "satuan": r["satuan"],
                           "subtotal_rp": _rupiah(int(r["subtotal"] or 0))}
-                         for r in per_item]}
+                         for r in per_item],
+            "menunggu": [{"pesanan_id": r["id"], "nama": r["nama"],
+                          "blok": r["blok"], "total_rp": _rupiah(r["total"]),
+                          "status": r["status"]} for r in menunggu]}
 
 
 def rute_hari_ini(tanggal=None, db_path=None):
@@ -177,7 +384,8 @@ def rute_hari_ini(tanggal=None, db_path=None):
     rows = conn.execute(
         "SELECT p.id, pl.nama, pl.blok, pl.alamat, p.total, p.status_bayar "
         "FROM pesanan p JOIN pelanggan pl ON pl.id = p.pelanggan_id "
-        "WHERE p.tanggal = ? ORDER BY p.id", (tanggal,)).fetchall()
+        "WHERE p.tanggal = ? AND p.status = 'dikonfirmasi' ORDER BY p.id",
+        (tanggal,)).fetchall()
     conn.close()
     grouped = {b: [] for b in BLOK_RUTE}
     for r in rows:
@@ -198,7 +406,8 @@ def tagihan_belum_bayar(db_path=None):
     rows = conn.execute(
         "SELECT p.id, p.tanggal, pl.nama, pl.blok, p.total "
         "FROM pesanan p JOIN pelanggan pl ON pl.id = p.pelanggan_id "
-        "WHERE p.status_bayar = 'belum' ORDER BY p.tanggal, p.id"
+        "WHERE p.status_bayar = 'belum' AND p.status = 'dikonfirmasi' "
+        "ORDER BY p.tanggal, p.id"
     ).fetchall()
     conn.close()
     total = sum(r["total"] for r in rows)
@@ -214,12 +423,17 @@ def tandai_lunas(pesanan_id, db_path=None):
     init_db(db_path)
     conn = connect(db_path)
     row = conn.execute(
-        "SELECT p.id, pl.nama, p.total FROM pesanan p "
+        "SELECT p.id, p.status, pl.nama, p.total FROM pesanan p "
         "JOIN pelanggan pl ON pl.id = p.pelanggan_id WHERE p.id = ?",
         (pesanan_id,)).fetchone()
     if not row:
         conn.close()
         return {"ok": False, "error": f"Pesanan #{pesanan_id} tidak ditemukan."}
+    if row["status"] != "dikonfirmasi":
+        conn.close()
+        return {"ok": False,
+                "error": f"Pesanan #{pesanan_id} statusnya '{row['status']}', "
+                         "hanya pesanan dikonfirmasi yang bisa ditandai lunas."}
     conn.execute("UPDATE pesanan SET status_bayar = 'lunas' WHERE id = ?",
                  (pesanan_id,))
     conn.commit()
@@ -238,7 +452,8 @@ def rekap_omzet(mulai=None, sampai=None, db_path=None):
         "SELECT tanggal, COUNT(*) jml, SUM(total) omzet, "
         "SUM(CASE WHEN status_bayar='lunas' THEN total ELSE 0 END) lunas, "
         "SUM(CASE WHEN status_bayar='belum' THEN total ELSE 0 END) belum "
-        "FROM pesanan WHERE tanggal BETWEEN ? AND ? GROUP BY tanggal "
+        "FROM pesanan WHERE tanggal BETWEEN ? AND ? "
+        "AND status = 'dikonfirmasi' GROUP BY tanggal "
         "ORDER BY tanggal", (mulai, sampai)).fetchall()
     conn.close()
     total = sum(r["omzet"] or 0 for r in rows)
