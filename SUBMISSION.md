@@ -82,12 +82,18 @@ Budi, Jl. Melati No. 5 dulu, baru Bu Sari, Jl. Melati No. 12.*
 Switch is central to this project: without it, there is no group
 room and no agent in the residents' chat.
 
-- Switch Core runs the room **Warung Sayur - Komplek Melati**, bridged
-  to Switch's built-in Mattermost channel, so residents and the vendor
-  talk in one group conversation.
-- BangSayur joins that room as a custom agent through the Switch agent
-  protocol (`agent/switch_client.py`, stdlib-only): it registers with
-  `POST /agents`, opens the SSE event stream, sends a heartbeat,
+- Switch Core runs two rooms, bridged to Switch's built-in
+  Mattermost channel: **#pesan-sayur** for residents (ordering only)
+  and **#dapur-bangsayur**, vendor-only, where the vendor approves
+  orders, sees the recap, the route, and the unpaid bills. Residents
+  never see the vendor's recap, route, or other residents' bills, and
+  the vendor never works inside the residents' chat. (Two rooms need
+  two runner processes sharing one database — `BANGSAYUR_ROLE=warga`
+  and `BANGSAYUR_ROLE=vendor` — because one Switch connection claims
+  one room.)
+- BangSayur joins those rooms as a custom agent through the Switch
+  agent protocol (`agent/switch_client.py`, stdlib-only): it registers
+  with `POST /agents`, opens the SSE event stream, sends a heartbeat,
   claims the room with `connect_to_room`, listens for messages that
   mention `@bangsayur`, runs the tool loop, and replies with
   `post_message`.
@@ -147,7 +153,7 @@ Python 3.12+ (`pip install -r requirements.txt`), PostgreSQL 16, a
 Re-run the demo checks without a model or Switch with:
 
 ```
-python3 -m unittest discover -s tests -v   # 12 tests
+python3 -m unittest discover -s tests -v   # 25 tests
 python3 demo/run_webapp_demo.py --mock     # 22 checks
 ```
 
