@@ -4,7 +4,11 @@
 Fungsi-fungsi di sini dipanggil model lewat tool loop (agent.py).
 Setiap fungsi mengembalikan dict JSON-able.
 """
+import os
+import re
+import sqlite3
 from datetime import date, datetime, timedelta
+from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
 from db import BLOK_RUTE, connect, init_db
@@ -26,6 +30,49 @@ def _now_wib():
 
 def _rupiah(n):
     return f"Rp{n:,.0f}".replace(",", ".")
+
+
+def _rupiah_bulat(nilai):
+    """Bulatkan jumlah rupiah ke rupiah terdekat (bukan potong ke bawah)."""
+    return int(Decimal(str(nilai)).quantize(Decimal("1"),
+                                            rounding=ROUND_HALF_UP))
+
+
+def _connect_tx(db_path=None):
+    """Koneksi SQLite dengan transaksi tulis eksplisit (BEGIN IMMEDIATE).
+
+    Dipakai operasi stok: cek stok lalu kurangi harus atomik, supaya dua
+    order bersamaan tidak bisa menyalip dan oversell. Coba lagi sebentar
+    kalau database sedang dikunci penulis lain.
+    """
+    import time as _time
+
+    from db import DEFAULT_DB
+
+    path = db_path or DEFAULT_DB
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    conn = sqlite3.connect(path, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    for delay in (0, 0.2, 0.5, 1.0, 2.0):
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            return conn
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() or delay == 2.0:
+                conn.close()
+                raise
+            _time.sleep(delay)
+    raise AssertionError("unreachable")
+
+
+def _close_tx(conn):
+    """Tutup koneksi transaksi: rollback kalau belum COMMIT, lalu close."""
+    try:
+        conn.execute("ROLLBACK")
+    except Exception:
+        pass
+    finally:
+        conn.close()
 
 
 # Singkatan yang dipakai warga sehari-hari (terutama orang tua) -> nama resmi.
@@ -166,6 +213,15 @@ def daftar_pelanggan(nama, blok, alamat="", db_path=None):
                     "nama": pel["nama"], "blok": pel["blok"],
                     "alamat": pel["alamat"], "no_show": pel["no_show"],
                     "status": pel["status"]}
+        pel_norm = conn.execute(
+            "SELECT id, nama, blok, alamat, no_show, status FROM pelanggan "
+            "WHERE replace(lower(nama), ' ', '') = ?",
+            (_nama_norm(nama),)).fetchone()
+        if pel_norm:
+            return {"ok": True, "sudah_ada": True, "id": pel_norm["id"],
+                    "nama": pel_norm["nama"], "blok": pel_norm["blok"],
+                    "alamat": pel_norm["alamat"], "no_show": pel_norm["no_show"],
+                    "status": pel_norm["status"]}
         cur = conn.execute(
             "INSERT INTO pelanggan (nama, blok, alamat) VALUES (?, ?, ?)",
             (nama, blok, alamat or ""))
@@ -188,7 +244,7 @@ def catat_pesanan(nama, blok, items, db_path=None):
     pernah di-ACC tidak menggerogoti stok.
     """
     init_db(db_path)
-    conn = connect(db_path)
+    conn = _connect_tx(db_path)
     try:
         nama = (nama or "").strip()
         blok = (blok or "").strip().upper()
@@ -228,7 +284,7 @@ def catat_pesanan(nama, blok, items, db_path=None):
                         "error": f"Stok {row['nama']} tinggal {row['stok']} {row['satuan']}, "
                                  f"tidak cukup untuk {qty} {row['satuan']}."}
             resolved.append((row, qty))
-            total += int(row["harga"] * qty)
+            total += _rupiah_bulat(row["harga"] * qty)
         status = "menunggu_dp" if pel["status"] == "ditahan" else "menunggu_acc"
         if _pengaturan(conn, "status_toko", "buka") == "libur":
             pesan = _pengaturan(conn, "pesan_libur", "")
@@ -243,18 +299,18 @@ def catat_pesanan(nama, blok, items, db_path=None):
             conn.execute(
                 "INSERT INTO pesanan_items (pesanan_id, item_id, qty, harga_satuan) "
                 "VALUES (?, ?, ?, ?)", (pesanan_id, row["id"], qty, row["harga"]))
-        conn.commit()
+        conn.execute("COMMIT")
         return {"ok": True, "pesanan_id": pesanan_id, "nama": pel["nama"],
                 "blok": blok, "total": total, "total_rp": _rupiah(total),
                 "tanggal": today, "untuk_besok": besok,
                 "items": [{"nama": r["nama"], "qty": q,
                            "satuan": r["satuan"],
-                           "subtotal_rp": _rupiah(int(r["harga"] * q))}
+                           "subtotal_rp": _rupiah(_rupiah_bulat(r["harga"] * q))}
                           for r, q in resolved],
                 "status": status, "status_bayar": "belum",
                 "no_show_pelanggan": pel["no_show"]}
     finally:
-        conn.close()
+        _close_tx(conn)
 
 
 def konfirmasi_pesanan(pesanan_id, aksi, db_path=None):
@@ -269,7 +325,7 @@ def konfirmasi_pesanan(pesanan_id, aksi, db_path=None):
     aksi = (aksi or "").strip().lower()
     if aksi not in ("acc", "tolak", "dp_masuk"):
         return {"ok": False, "error": "Aksi harus: acc, tolak, atau dp_masuk."}
-    conn = connect(db_path)
+    conn = _connect_tx(db_path)
     try:
         row = conn.execute(
             "SELECT p.id, p.status, p.total, pl.nama FROM pesanan p "
@@ -297,7 +353,7 @@ def konfirmasi_pesanan(pesanan_id, aksi, db_path=None):
                              (it["qty"], it["id"]))
             conn.execute("UPDATE pesanan SET status = 'dikonfirmasi' WHERE id = ?",
                          (pesanan_id,))
-            conn.commit()
+            conn.execute("COMMIT")
             return {"ok": True, "pesanan_id": pesanan_id, "nama": row["nama"],
                     "total_rp": _rupiah(row["total"]), "status": "dikonfirmasi"}
         if aksi == "tolak":
@@ -307,7 +363,7 @@ def konfirmasi_pesanan(pesanan_id, aksi, db_path=None):
                                  "tidak bisa ditolak."}
             conn.execute("UPDATE pesanan SET status = 'ditolak' WHERE id = ?",
                          (pesanan_id,))
-            conn.commit()
+            conn.execute("COMMIT")
             return {"ok": True, "pesanan_id": pesanan_id, "nama": row["nama"],
                     "total_rp": _rupiah(row["total"]), "status": "ditolak"}
         # dp_masuk
@@ -317,11 +373,11 @@ def konfirmasi_pesanan(pesanan_id, aksi, db_path=None):
                              "bukan menunggu DP."}
         conn.execute("UPDATE pesanan SET status = 'menunggu_acc' WHERE id = ?",
                      (pesanan_id,))
-        conn.commit()
+        conn.execute("COMMIT")
         return {"ok": True, "pesanan_id": pesanan_id, "nama": row["nama"],
                 "total_rp": _rupiah(row["total"]), "status": "menunggu_acc"}
     finally:
-        conn.close()
+        _close_tx(conn)
 
 
 def tandai_tidak_diambil(pesanan_id, db_path=None):
@@ -332,7 +388,7 @@ def tandai_tidak_diambil(pesanan_id, db_path=None):
     HANYA untuk tukang sayur.
     """
     init_db(db_path)
-    conn = connect(db_path)
+    conn = _connect_tx(db_path)
     try:
         row = conn.execute(
             "SELECT p.id, p.status, p.total, pl.id AS pel_id, pl.nama, "
@@ -358,12 +414,12 @@ def tandai_tidak_diambil(pesanan_id, db_path=None):
         status = "ditahan" if no_show >= 2 else "aktif"
         conn.execute("UPDATE pelanggan SET no_show = ?, status = ? WHERE id = ?",
                      (no_show, status, row["pel_id"]))
-        conn.commit()
+        conn.execute("COMMIT")
         return {"ok": True, "pesanan_id": pesanan_id, "nama": row["nama"],
                 "total_rp": _rupiah(row["total"]), "status": "tidak_diambil",
                 "no_show": no_show, "status_pelanggan": status}
     finally:
-        conn.close()
+        _close_tx(conn)
 
 
 def daftar_menunggu_acc(db_path=None):
@@ -407,7 +463,7 @@ def cek_pesanan(pesanan_id, db_path=None):
             "status_bayar": row["status_bayar"],
             "items": [{"nama": i["nama"], "qty": i["qty"],
                        "satuan": i["satuan"],
-                       "subtotal_rp": _rupiah(int(i["harga_satuan"] * i["qty"]))}
+                       "subtotal_rp": _rupiah(_rupiah_bulat(i["harga_satuan"] * i["qty"]))}
                       for i in items]}
 
 
@@ -455,7 +511,7 @@ def ubah_pesanan(pesanan_id, items, db_path=None, nama=None):
                         "error": f"Stok {item['nama']} tinggal {item['stok']} "
                                  f"{item['satuan']}."}
             resolved.append((item, qty))
-            total += int(item["harga"] * qty)
+            total += _rupiah_bulat(item["harga"] * qty)
         conn.execute("DELETE FROM pesanan_items WHERE pesanan_id = ?",
                      (pesanan_id,))
         for item, qty in resolved:
@@ -469,7 +525,7 @@ def ubah_pesanan(pesanan_id, items, db_path=None, nama=None):
                 "total": total, "total_rp": _rupiah(total),
                 "status": row["status"],
                 "items": [{"nama": r["nama"], "qty": q, "satuan": r["satuan"],
-                           "subtotal_rp": _rupiah(int(r["harga"] * q))}
+                           "subtotal_rp": _rupiah(_rupiah_bulat(r["harga"] * q))}
                           for r, q in resolved]}
     finally:
         conn.close()
@@ -604,7 +660,7 @@ def rekap_harian(tanggal=None, db_path=None, nama=None):
                          "status_bayar": r["status_bayar"]} for r in rows],
             "per_item": [{"nama": r["nama"], "qty": r["qty"],
                           "satuan": r["satuan"],
-                          "subtotal_rp": _rupiah(int(r["subtotal"] or 0))}
+                          "subtotal_rp": _rupiah(_rupiah_bulat(r["subtotal"] or 0))}
                          for r in per_item],
             "menunggu": [{"pesanan_id": r["id"], "nama": r["nama"],
                           "blok": r["blok"], "total_rp": _rupiah(r["total"]),
@@ -706,15 +762,24 @@ def rute_berikutnya(db_path=None):
 
 
 def _parse_alamat(alamat):
-    """"Jl. Melati No. 12" -> ("melati", 12). Dipakai mengurutkan berhenti
+    """"Jl. Melati No. 12" -> ("melati", 12); "Blok A No. 5" -> ("blok a", 5);
+    "No. 12" -> ("", 12); kosong -> ("", 9999). Dipakai mengurutkan berhenti
     di dalam satu blok supaya tidak bolak-balik."""
-    import re
-    m = re.search(r"(?:jl\.?|jalan)\s+([a-zA-Z\s]+?)\s*(?:no\.?|nomor)?\s*(\d+)",
-                  alamat or "", re.IGNORECASE)
+    teks = (alamat or "").strip()
+    if not teks:
+        return ("", 9999)
+    m = re.search(
+        r"(?:blok\s+([a-zA-Z])|(?:jl\.?|jalan|gang)\s+([a-zA-Z\s]+?))"
+        r"\s*(?:no\.?|nomor)?\s*(\d+)",
+        teks, re.IGNORECASE)
     if m:
-        return (m.group(1).strip().lower(), int(m.group(2)))
-    angka = re.findall(r"\d+", alamat or "")
-    return ((alamat or "").lower(), int(angka[-1]) if angka else 9999)
+        jalan = ("blok " + m.group(1)) if m.group(1) else m.group(2)
+        return (jalan.strip().lower(), int(m.group(3)))
+    m = re.search(r"(?:no\.?|nomor)\s*(\d+)", teks, re.IGNORECASE)
+    if m:
+        return ("", int(m.group(1)))
+    angka = re.findall(r"\d+", teks)
+    return (teks.lower(), int(angka[-1]) if angka else 9999)
 
 
 def tagihan_belum_bayar(db_path=None, nama=None):
@@ -809,18 +874,28 @@ def tandai_bon(pesanan_id, jatuh_tempo=None, db_path=None):
 
 
 def hitung_kembalian(total, uang_bayar, db_path=None):
-    """Hitung kembalian tunai: total tagihan vs uang yang dikasih warga."""
+    """Hitung kembalian tunai: total tagihan vs uang yang dikasih warga.
+
+    Pakai Decimal supaya 4999.5 dibulatkan jadi 5000 (bukan dipotong).
+    """
     try:
-        total = int(total)
-        uang_bayar = int(uang_bayar)
-    except (TypeError, ValueError):
+        total_d = Decimal(str(total)).quantize(Decimal("1"),
+                                               rounding=ROUND_HALF_UP)
+        bayar_d = Decimal(str(uang_bayar)).quantize(Decimal("1"),
+                                                    rounding=ROUND_HALF_UP)
+    except Exception:
         return {"ok": False, "error": "Total dan uang bayar harus angka."}
-    if uang_bayar < total:
-        return {"ok": False, "kurang_rp": _rupiah(total - uang_bayar),
-                "error": f"Uang kurang {_rupiah(total - uang_bayar)}."}
-    return {"ok": True, "total_rp": _rupiah(total),
-            "uang_bayar_rp": _rupiah(uang_bayar),
-            "kembalian_rp": _rupiah(uang_bayar - total)}
+    total_i, bayar_i = int(total_d), int(bayar_d)
+    if bayar_i < total_i:
+        kurang = total_i - bayar_i
+        return {"ok": False, "kurang": kurang,
+                "kurang_rp": _rupiah(kurang),
+                "error": f"Uang kurang {_rupiah(kurang)}."}
+    kembali = bayar_i - total_i
+    return {"ok": True, "total": total_i, "uang_bayar": bayar_i,
+            "kembalian": kembali, "total_rp": _rupiah(total_i),
+            "uang_bayar_rp": _rupiah(bayar_i),
+            "kembalian_rp": _rupiah(kembali)}
 
 
 def lapor_bayar(pesanan_id, metode, db_path=None):
@@ -1001,9 +1076,6 @@ def buat_backup(db_path=None):
             data[tabel] = [dict(r) for r in rows]
     finally:
         conn.close()
-    import os
-    folder = os.path.join(os.path.dirname(os.path.abspath(db_path or "")),
-                          "..", "data") if db_path else "data"
     folder = os.path.normpath(os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "..", "data"))
     os.makedirs(folder, exist_ok=True)
@@ -1011,7 +1083,8 @@ def buat_backup(db_path=None):
     path = os.path.join(folder, nama)
     with open(path, "w") as f:
         json.dump(data, f, ensure_ascii=False, indent=1)
-    return {"ok": True, "file": path,
+    return {"ok": True, "file": os.path.join("data", nama),
+            "file_abs": path,
             "pesanan": len(data["pesanan"]),
             "pelanggan": len(data["pelanggan"]),
             "komplain": len(data["komplain"])}

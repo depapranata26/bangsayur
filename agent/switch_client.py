@@ -32,6 +32,9 @@ class SwitchClient:
         self.connection_id = str(uuid.uuid4())
         self.cursor = 0
         self._stop = threading.Event()
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat_thread = None
+        self._heartbeat_interval = 2.0
 
     # -- low-level HTTP -----------------------------------------------------
     def _req(self, method, path, body=None, headers=None, timeout=30):
@@ -96,23 +99,50 @@ class SwitchClient:
                   "cursor": self.cursor})
 
     def start_heartbeat(self, interval=2.0):
+        """Mulai thread heartbeat; kalau sudah ada thread yang masih hidup,
+        kembalikan thread itu (tidak pernah ada dua thread heartbeat)."""
+        if self._heartbeat_thread is not None \
+                and self._heartbeat_thread.is_alive():
+            return self._heartbeat_thread
+        self._heartbeat_interval = interval
+        self._heartbeat_stop.clear()
+
         def loop():
-            while not self._stop.is_set():
+            while not self._heartbeat_stop.is_set():
                 try:
                     self.beat()
                 except Exception as exc:  # noqa: BLE001 - heartbeat tak boleh mati
                     print(f"[switch] heartbeat gagal: {exc}", flush=True)
-                self._stop.wait(interval)
+                self._heartbeat_stop.wait(interval)
         t = threading.Thread(target=loop, daemon=True, name="heartbeat")
+        self._heartbeat_thread = t
         t.start()
         return t
 
+    def stop_heartbeat(self):
+        """Hentikan thread heartbeat (dipakai saat reconnect SSE supaya
+        thread lama tidak dobel dengan yang baru)."""
+        self._heartbeat_stop.set()
+        t = self._heartbeat_thread
+        self._heartbeat_thread = None
+        if t is not None and t is not threading.current_thread():
+            t.join(timeout=self._heartbeat_interval + 1)
+
     def stop(self):
         self._stop.set()
+        self.stop_heartbeat()
 
     # -- SSE stream ----------------------------------------------------------
     def events(self):
-        """Generator event SSE: yield dict {seq, type, data}."""
+        """Generator event SSE: yield dict {seq, type, data}.
+
+        Sinyal putus: kalau stream ditutup server (EOF di readline),
+        generator ini raise SwitchError("SSE stream putus (EOF)") — TIDAK
+        diam-diam berhenti. Pemanggil (run.py) menangkapnya dan reconnect
+        dengan backoff. Gagal membuka stream juga naik sebagai SwitchError
+        (bukan URLError/HTTPError mentah). Stop normal via stop() tetap
+        mengakhiri generator tanpa error.
+        """
         qs = urllib.parse.urlencode({
             "connection_id": self.connection_id,
             "scope": "all",
@@ -125,13 +155,23 @@ class SwitchClient:
         req = urllib.request.Request(
             url, headers={"Authorization": f"Bearer {self.api_key}",
                           "Accept": "text/event-stream"})
-        resp = urllib.request.build_opener().open(req, timeout=None)
+        try:
+            resp = urllib.request.build_opener().open(req, timeout=None)
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:800]
+            raise SwitchError(
+                f"GET /agents/{self.agent_id}/events -> HTTP {exc.code}: "
+                f"{detail}") from exc
+        except urllib.error.URLError as exc:
+            raise SwitchError(
+                f"GET /agents/{self.agent_id}/events gagal: "
+                f"{exc.reason}") from exc
         seq, ev_type, data_lines = None, None, []
         try:
             while not self._stop.is_set():
                 line = resp.readline().decode("utf-8", "replace")
                 if line == "":
-                    break  # stream putus
+                    raise SwitchError("SSE stream putus (EOF)")
                 line = line.rstrip("\n")
                 if line == "":
                     if data_lines:

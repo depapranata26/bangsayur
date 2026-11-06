@@ -93,6 +93,15 @@ An order never becomes final immediately — 4 layers:
    enters recaps/routes/bills after the vendor approves
    (`konfirmasi_pesanan`, actions `acc`/`tolak` = approve/reject). Vendor
    commands only come from the vendor's own sender.
+
+   Vendor identity: if `BANGSAYUR_VENDOR_IDS` is set (comma-separated
+   Mattermost user IDs), only a sender whose ID is on that list counts as
+   the vendor; a matching name alone is NOT enough. If the variable is
+   empty (demo mode), the vendor is recognised by sender name only — that
+   fallback is demo-only and unsafe for production, because anyone can
+   pick that name. In the web app, vendor commands additionally require
+   the `BANGSAYUR_VENDOR_PIN` (set your own strong PIN; if unset, demo
+   mode accepts the demo PIN `1234`).
 4. **Blacklist** — `tandai_tidak_diambil` (marked not picked up): stock is
    returned, the customer's no-show count +1; 2 no-shows → the customer is
    `ditahan` ("held"), and their next order enters `menunggu_dp`
@@ -296,13 +305,101 @@ bangsayur/
 ├── webapp/
 │   ├── server.py           # WhatsApp-style web chat server (port 8001)
 │   └── index.html          # single-file WA-style UI
+├── tests/
+│   └── test_tools.py       # unittest (stdlib only): orders, privacy, money, race
+├── docker/
+│   └── postgres-init/01-mattermost.sh   # create mmuser + mattermost DB
 └── demo/
     ├── start_switch.sh     # run switch-core (loads .env)
     ├── setup_bridge.sh     # Mattermost + Switch bridge registration
     ├── run_scenario.py     # send the 6-step demo as residents
     ├── probe_room.py       # one-off probe (stream/room/event)
-    └── transcript-demo.md  # verified demo transcript
+    ├── transcript-demo.md  # demo transcript (YA→ACC, verified via local simulation)
+    ├── transcript-webapp.md  # output of run_webapp_demo.py --mock
+    ├── run_webapp_demo.py  # re-run the 6-step demo, --mock or --live
+    └── VIDEO_SCRIPT.md     # shot-by-shot script for the <3 min demo video
 ```
+
+## Demo video (not recorded yet)
+
+**Status: NOT RECORDED.** Follow the shot-by-shot script in
+`demo/VIDEO_SCRIPT.md` (9 shots, 2 min 58 sec, recorded from a phone):
+Bu Sari orders → summary + YA → waiting for ACC → vendor ACC → stock
+drops; Pak Budi the same way; Bu Ratna asks for her recap (only her own,
+0); the vendor asks for revenue Rp98,000 and the route (Pak Budi
+Jl. Melati No. 5 first, then Bu Sari No. 12).
+
+The video is recorded from the **web app in a phone browser** (WhatsApp-
+style chat), NOT from live Mattermost. Do not claim it is a live
+Mattermost recording until a real live recording exists. The matching
+transcript is `demo/transcript-demo.md` — it is **not a live Mattermost
+log**; it was verified via local simulation
+(`python3 demo/run_webapp_demo.py --mock`, 22 checks). Re-run it with:
+
+```bash
+python3 demo/run_webapp_demo.py --mock   # no model, no Switch/Mattermost
+python3 demo/run_webapp_demo.py --live [--vendor-pin <PIN>]  # needs Baseten
+```
+
+## Why Switch is central (and the web app is only an alternative)
+
+- **Switch + Mattermost is the main path**, because that is where the
+  residents' group chat lives: one room, many residents + the vendor in
+  one conversation, the agent answers `@bangsayur` mentions, and the
+  sender identity comes from each person's Mattermost account. Every
+  flow (order → YA → ACC → route → bills) was designed for that group.
+- **The web app (`webapp/server.py`) is only an alternative door / demo
+  tool.** It runs the SAME agent (`agent.run_turn`, same SQLite tools),
+  but: (1) one user at a time — the sender is picked from the "Saya"
+  picker, not from a real chat account; (2) its DB is separate
+  (`data/webapp.db`, not `data/bangsayur.db`); (3) there is no room/group,
+  so multi-resident dynamics are only simulated. It is useful for a
+  phone demo and quick tests without running Switch/Mattermost — not a
+  replacement for the main path.
+
+## Tests
+
+```bash
+python3 -m py_compile agent/*.py webapp/server.py demo/*.py tests/*.py
+python3 -m unittest discover -s tests -v
+```
+
+`tests/test_tools.py` (unittest, stdlib only, temp DBs in /tmp) covers:
+order → ACC reduces stock exactly once, second ACC rejected, scoped
+privacy (a resident only sees their own recap/bills/order, address
+redacted), another resident's order cannot be edited, notes append,
+exact change with decimals, address parsing variants, a two-thread
+stock race that must not oversell, `run_turn` out of iterations replying
+with an apology instead of raw JSON, WIB (`Asia/Jakarta`), and the
+vendor-ID check.
+
+## Known limitations
+
+- **Demo video not recorded yet** (see above); the transcript is verified
+  via local simulation, not a live log.
+- **Live demo script mode (`--live`) has not been run** in this session
+  (no Baseten call was made); only `--mock` (22 checks) is verified.
+  Run `--live` once before claiming an end-to-end web-app flow with the
+  model.
+- **Vendor auth:** with `BANGSAYUR_VENDOR_IDS` set, the vendor is
+  recognised by user ID; with it empty (demo mode), by sender NAME only
+  — names can be faked by anyone, so demo mode must NOT be used in
+  production. In the web app, vendor commands are also gated by
+  `BANGSAYUR_VENDOR_PIN` (empty = demo mode, demo PIN `1234` accepted).
+  Set a strong PIN of your own before real use; never commit a filled
+  `.env`.
+- **Cutoff:** orders after 07:00 WIB automatically become TOMORROW's
+  orders (`untuk_besok=true`). The demo script reads the order date from
+  the DB so recaps/routes still match even when run after the cutoff.
+- **`docker-compose.yml` is still UNTESTED.** The file is valid YAML
+  (`python3 -c "import yaml; yaml.safe_load(open('docker-compose.yml'))"`
+  → OK), but there is no Docker in the development VM, so it has never
+  run end-to-end. Do not use compose as the main reproduction path; the
+  verified path is the bare-metal steps above.
+- **Stock race and SSE reconnect are fixed in code and covered by local
+  tests** (transactions with `BEGIN IMMEDIATE`; reconnect with backoff
+  2/5/10/30 s, max 5 attempts; model retry only for 429/500/502/503),
+  but neither has been proven against live Switch/Mattermost yet.
 
 ## What is NOT committed
 

@@ -55,6 +55,13 @@ const sendBtn = document.getElementById('send');
 const whoami = document.getElementById('whoami');
 let sender = 'Bu Sari';
 
+// Nama pengirim yang dianggap vendor (sama seperti VENDOR_SENDERS di
+// agent.py). Kalau picker memilih salah satunya, minta PIN vendor.
+const VENDOR_NAMES = new Set(['tukang sayur', 'bang sayur', 'warga', 'toko', 'pemilik']);
+function isVendorSender(name) {
+  return VENDOR_NAMES.has((name || '').trim().toLowerCase());
+}
+
 const CHIPS = [
   ['🥬 Pesan sayur', 'Halo bang, saya mau pesan sayur'],
   ['📋 Daftar harga', 'Daftar harga sayur hari ini apa aja bang?'],
@@ -91,6 +98,14 @@ function bubble(text, cls) {
 async function send(text) {
   text = (text || input.value).trim();
   if (!text) return;
+  // Perintah tukang sayur butuh PIN vendor (di mode demo: 1234). PIN
+  // tidak pernah ditampilkan di layar/log — hanya dikirim di body fetch.
+  // Kalau pengguna batal (prompt null), jangan kirim pesan.
+  let pin;
+  if (isVendorSender(sender)) {
+    pin = prompt('PIN vendor (tukang sayur):');
+    if (pin === null) return;
+  }
   input.value = '';
   bubble(text, 'out');
   const tp = document.createElement('div');
@@ -99,10 +114,12 @@ async function send(text) {
   chat.scrollTop = chat.scrollHeight;
   sendBtn.disabled = true;
   try {
+    const body = { sender, message: text };
+    if (pin !== undefined) body.pin = pin;
     const r = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sender, message: text }),
+      body: JSON.stringify(body),
     });
     const data = await r.json();
     tp.remove();

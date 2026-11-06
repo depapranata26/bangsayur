@@ -82,6 +82,15 @@ Pesanan tidak pernah langsung jadi — ada 4 lapis:
    berkurang dan pesanan baru masuk rekap/rute/tagihan setelah tukang sayur
    ACC (`konfirmasi_pesanan`, aksi `acc`/`tolak`). Perintah vendor HANYA
    dari pengirim tukang sayur.
+
+   Identitas vendor: kalau `BANGSAYUR_VENDOR_IDS` diisi (daftar ID user
+   Mattermost, dipisah koma), hanya pengirim yang ID-nya ada di daftar itu
+   yang dihitung sebagai tukang sayur; nama yang cocok saja TIDAK cukup.
+   Kalau variabel itu kosong (mode demo), vendor dikenali dari NAMA
+   pengirim saja — fallback itu hanya untuk demo dan tidak aman untuk
+   produksi, karena siapa pun bisa memakai nama itu. Di web app, perintah
+   vendor juga butuh `BANGSAYUR_VENDOR_PIN` (isi PIN kuat sendiri;
+   kalau tidak diisi, mode demo menerima PIN demo `1234`).
 4. **Catatan hitam** — `tandai_tidak_diambil`: stok dikembalikan, no_show
    pelanggan +1; 2x tidak ambil → pelanggan `ditahan`, order berikutnya
    masuk `menunggu_dp` dan baru jalan setelah tukang sayur konfirmasi
@@ -270,13 +279,101 @@ bangsayur/
 │   ├── db.py               # skema + seed (20 item, 6 pelanggan, Blok A-D)
 │   ├── switch_client.py    # client protokol Switch (stdlib-only)
 │   └── run.py              # runner: SSE + heartbeat + balas mention
+├── tests/
+│   └── test_tools.py       # unittest (stdlib saja): pesanan, privasi, uang, race
+├── docker/
+│   └── postgres-init/01-mattermost.sh   # buat mmuser + DB mattermost
 └── demo/
     ├── start_switch.sh     # jalankan switch-core (load .env)
     ├── setup_bridge.sh     # Mattermost + registrasi bridge Switch
     ├── run_scenario.py     # kirim 6 langkah demo sebagai warga
     ├── probe_room.py       # probe sekali-pakai (stream/room/event)
-    └── transcript-demo.md  # transkrip demo terverifikasi
+    ├── transcript-demo.md  # transkrip demo (YA→ACC, terverifikasi via simulasi lokal)
+    ├── transcript-webapp.md  # output run_webapp_demo.py --mock
+    ├── run_webapp_demo.py  # jalankan ulang demo 6 langkah, --mock atau --live
+    └── VIDEO_SCRIPT.md     # naskah shot-by-shot video demo <3 menit
 ```
+
+## Video demo (belum direkam)
+
+**Status: BELUM DIREKAM.** Ikuti naskah shot-by-shot di
+`demo/VIDEO_SCRIPT.md` (9 shot, 2 menit 58 detik, direkam dari HP):
+Bu Sari pesan → ringkasan + YA → menunggu ACC → vendor ACC → stok
+berkurang; Pak Budi dengan alur yang sama; Bu Ratna tanya rekap (hanya
+miliknya, 0); vendor tanya omzet Rp98.000 dan rute (Pak Budi
+Jl. Melati No. 5 dulu, baru Bu Sari No. 12).
+
+Video direkam dari **web app di browser HP** (chat gaya WA), BUKAN dari
+Mattermost live. Jangan klaim ini rekaman live Mattermost sampai ada
+rekaman live beneran. Transkrip pendampingnya ada di
+`demo/transcript-demo.md` — itu **bukan log live Mattermost**, melainkan
+transkrip yang terverifikasi via simulasi lokal
+(`python3 demo/run_webapp_demo.py --mock`, 22 cek). Jalankan ulang
+dengan:
+
+```bash
+python3 demo/run_webapp_demo.py --mock   # tanpa model, tanpa Switch/Mattermost
+python3 demo/run_webapp_demo.py --live [--vendor-pin <PIN>]  # butuh Baseten
+```
+
+## Kenapa Switch yang utama (dan web app hanya pintu alternatif)
+
+- **Switch + Mattermost adalah jalur utama**, karena di situlah grup chat
+  warga tinggal: satu room, banyak warga + tukang sayur dalam satu
+  percakapan, agen membalas sebutan `@bangsayur`, dan identitas pengirim
+  berasal dari akun Mattermost masing-masing. Semua alur (pesan → YA →
+  ACC → rute → tagihan) dirancang untuk grup itu.
+- **Web app (`webapp/server.py`) hanya pintu alternatif / alat demo.**
+  Agennya SAMA (`agent.run_turn` yang sama, tools SQLite yang sama),
+  tapi: (1) satu pengguna dalam satu waktu — pengirim dipilih lewat
+  picker "Saya", bukan dari akun chat beneran; (2) DB-nya terpisah
+  (`data/webapp.db`, bukan `data/bangsayur.db`); (3) tidak ada room/grup,
+  jadi dinamika multi-warga hanya simulasi. Web app berguna untuk demo
+  dari HP dan tes cepat tanpa menjalankan Switch/Mattermost — bukan
+  pengganti jalur utama.
+
+## Tes
+
+```bash
+python3 -m py_compile agent/*.py webapp/server.py demo/*.py tests/*.py
+python3 -m unittest discover -s tests -v
+```
+
+`tests/test_tools.py` (unittest, stdlib saja, DB temp di /tmp) mencakup:
+pesanan → ACC mengurangi stok tepat sekali, ACC kedua ditolak, privasi
+scoped (warga hanya lihat rekap/tagihan/pesanannya sendiri, alamat
+diredaksi), pesanan orang lain tidak bisa diubah, catatan di-append,
+kembalian desimal tepat, varian parsing alamat, race stok dua thread yang
+tidak boleh oversell, `run_turn` yang kehabisan iterasi membalas dengan
+kalimat maaf bukan JSON mentah, WIB (`Asia/Jakarta`), dan cek vendor-ID.
+
+## Keterbatasan yang diketahui
+
+- **Video demo belum direkam** (lihat atas); transkrip terverifikasi via
+  simulasi lokal, bukan log live.
+- **Mode live skrip demo (`--live`) belum dijalankan** di sesi ini
+  (tidak ada panggilan model Baseten); yang terverifikasi hanya `--mock`
+  (22 cek lolos). Jalankan `--live` sekali sebelum mengklaim alur web
+  app end-to-end dengan model.
+- **Auth vendor:** kalau `BANGSAYUR_VENDOR_IDS` diisi, vendor dikenali
+  dari ID pengguna; kalau kosong (mode demo), dari NAMA pengirim saja —
+  nama bisa dipalsu siapa pun, jadi mode demo JANGAN dipakai di
+  produksi. Di web app, perintah vendor juga digerbangi
+  `BANGSAYUR_VENDOR_PIN` (kosong = mode demo, PIN demo `1234` diterima).
+  Isi PIN kuat sendiri sebelum dipakai beneran; jangan commit `.env`
+  yang sudah terisi.
+- **Batas order:** pesanan setelah 07:00 WIB otomatis jadi pesanan BESOK
+  (`untuk_besok=true`). Skrip demo membaca tanggal pesanan dari DB
+  supaya rekap/rute tetap cocok walau dijalankan setelah cutoff.
+- **`docker-compose.yml` TETAP BELUM TERUJI.** File-nya valid YAML
+  (`python3 -c "import yaml; yaml.safe_load(open('docker-compose.yml'))"`
+  → OK), tapi tidak ada Docker di VM pengembangan, jadi belum pernah
+  dijalankan end-to-end. Jangan jadikan compose jalur reproduksi utama;
+  jalur terverifikasi tetap langkah bare-metal di atas.
+- **Race stok dan reconnect SSE sudah diperbaiki di kode dan dicover tes
+  lokal** (transaksi `BEGIN IMMEDIATE`; reconnect dengan backoff
+  2/5/10/30 detik, maks 5 kali; retry model hanya untuk 429/500/502/503),
+  tapi keduanya belum dibuktikan terhadap Switch/Mattermost live.
 
 ## Yang TIDAK di-commit
 

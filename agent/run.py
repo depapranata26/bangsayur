@@ -43,6 +43,29 @@ ROOM_FILE = os.environ.get("SWITCH_ROOM_FILE") or os.path.join(
 CREDS_FILE = os.environ.get("SWITCH_CREDS_FILE") or os.path.join(
     _BANGSAYUR_HOME, ".switch-agent.json")
 MENTION_RE = re.compile(r"@bangsayur\b", re.IGNORECASE)
+# Backoff reconnect SSE (detik); maks 5x gagal berturut-turut lalu fatal.
+RECONNECT_BACKOFFS = [2, 5, 10, 30, 30]
+
+# Kunci ID pengirim di payload event (dicoba berurutan — Switch/Mattermost
+# tidak konsisten menamainya). "id" paling akhir di antara kunci-kunci ini
+# karena bisa juga berisi ID pesan, bukan ID pengirim.
+_SENDER_ID_KEYS = ("sender_id", "user_id", "id", "senderId", "author_id")
+
+
+def _extract_sender_id(payload, data=None):
+    """Ambil ID pengirim dari payload (lalu data langsung kalau tidak ada).
+
+    Kembalikan None kalau tidak ada kunci yang cocok. Dipakai _is_vendor
+    di agent.py untuk auth vendor berbasis ID.
+    """
+    for src in (payload, data):
+        if not isinstance(src, dict):
+            continue
+        for key in _SENDER_ID_KEYS:
+            val = src.get(key)
+            if val:
+                return str(val)
+    return None
 
 
 def resolve_room_id(client):
@@ -90,15 +113,60 @@ def main():
     creds = json.load(open(CREDS_FILE))
     client = SwitchClient(BASE, creds["id"], creds["api_key"])
     events: queue.Queue = queue.Queue()
+    reader_lock = threading.Lock()
+    reader_state = {"thread": None}
+    failures = {"n": 0}  # gagal reconnect berturut-turut; reset saat event masuk
 
-    def reader():
-        try:
-            for ev in client.events():
-                events.put(ev)
-        except Exception as e:
-            events.put({"type": "reader_error", "error": str(e)})
+    def start_reader():
+        """Mulai thread reader SSE; pastikan hanya SATU yang aktif.
 
-    threading.Thread(target=reader, daemon=True).start()
+        Kalau thread lama masih hidup, kembalikan itu (jangan start dobel
+        — dua reader = balasan dobel). Thread lama yang sudah mati diganti
+        yang baru. Reader baru TIDAK memproses ulang event lama: cursor
+        dan connection_id hidup di SwitchClient dan tidak di-reset saat
+        reconnect, jadi server melanjutkan stream dari posisi terakhir.
+        Asumsi: server Switch mengenali connection_id yang sama setelah
+        reconnect (tidak perlu connect_to_room ulang); event yang terlewat
+        selama stream putus tidak di-replay — hilang.
+        """
+        with reader_lock:
+            t = reader_state["thread"]
+            if t is not None and t.is_alive():
+                return t
+
+            def reader():
+                try:
+                    for ev in client.events():
+                        events.put(ev)
+                except Exception as e:
+                    events.put({"type": "reader_error", "error": str(e)})
+
+            t = threading.Thread(target=reader, daemon=True,
+                                 name="sse-reader")
+            reader_state["thread"] = t
+            t.start()
+            return t
+
+    def reconnect(reason, heartbeat=True):
+        """Reconnect SSE dengan backoff. Return False kalau sudah gagal 5x
+        berturut-turut (fatal — main() harus return 1, bukan loop diam
+        selamanya). Heartbeat lama dihentikan dulu supaya tidak dobel."""
+        failures["n"] += 1
+        if failures["n"] > len(RECONNECT_BACKOFFS):
+            print("[run] FATAL: SSE gagal reconnect 5x", flush=True)
+            return False
+        wait = RECONNECT_BACKOFFS[failures["n"] - 1]
+        print(f"[run] SSE putus ({reason}): reconnect "
+              f"{failures['n']}/5 dalam {wait} dtk", flush=True)
+        if heartbeat:
+            client.stop_heartbeat()
+        time.sleep(wait)
+        start_reader()
+        if heartbeat:
+            client.start_heartbeat(interval=5.0)
+        return True
+
+    start_reader()
 
     # tunggu connection_state (koneksi terbuka -> ops diizinkan)
     deadline = time.time() + 15
@@ -108,6 +176,16 @@ def main():
             ev = events.get(timeout=1)
         except queue.Empty:
             continue
+        if ev.get("type") == "reader_error":
+            # Stream putus sebelum sempat terbuka: reconnect (tanpa
+            # heartbeat — belum jalan di fase ini), lalu beri waktu
+            # 15 dtk lagi untuk open berikutnya.
+            if not reconnect(ev.get("error") or "reader_error",
+                             heartbeat=False):
+                return 1
+            deadline = time.time() + 15
+            continue
+        failures["n"] = 0
         if ev.get("type") == "connection_state":
             print("[run] stream terbuka, connection_id:",
                   ev["data"].get("connection_id"), flush=True)
@@ -130,17 +208,17 @@ def main():
         except queue.Empty:
             continue
         if ev.get("type") == "reader_error":
-            print("[run] reader mati:", ev.get("error"), "- reconnect...",
-                  flush=True)
-            threading.Thread(target=reader, daemon=True).start()
-            time.sleep(2)
+            if not reconnect(ev.get("error") or "reader_error"):
+                return 1
             continue
+        failures["n"] = 0  # satu event berhasil diterima -> reset hitungan
         if ev.get("type") != "message":
             continue
         data = ev.get("data", {})
         payload = data.get("payload", data)
         body = (payload.get("body") or "").strip()
         sender = payload.get("sender_name") or ""
+        sender_id = _extract_sender_id(payload, data)
         thread_id = payload.get("thread_id")
         if not body or sender == "bangsayur":
             continue
@@ -150,7 +228,7 @@ def main():
         history = read_history(client, room_id)
         try:
             result = run_turn(f"{sender}: {body}", history=history,
-                              sender=sender)
+                              sender=sender, sender_id=sender_id)
             reply = result.get("reply") or "Maaf, saya tidak mengerti."
         except Exception as e:
             print(f"[run] run_turn gagal: {e}", flush=True)

@@ -6,8 +6,10 @@ Key-nya TIDAK PERNAH ditulis ke file/log/repo: pakai pola Secure Vault yang
 sama seperti MejaBahasa (dynamic_credentials surrogate).
 """
 import json
+import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -15,8 +17,6 @@ try:
     sys.path.insert(0, "/opt/muse/skills/custom-connector-setup/bin")
     from dynamic_credentials import add_surrogate_to_request, read_json_response
 except ImportError:
-    import os
-
     def _get_key():
         return os.environ.get("BASENTEN_API_KEY", "")
 
@@ -58,8 +58,10 @@ ATURAN KERAS:
       biasa. Bilang ordernya perlu DP dulu (transfer), pesanan masuk status
       menunggu_dp dan baru jalan setelah Bang Sayur konfirmasi DP masuk.
 3. PERINTAH VENDOR — acc / tolak / dp_masuk / tidak_diambil / lunas HANYA
-   dari Bang Sayur sendiri (pengirim "warga" / "Tukang Sayur"). Kalau warga
-   biasa yang minta ACC atau lunas, tolak sopan: itu urusan tukang sayur.
+   dari Bang Sayur sendiri (dikenali dari ID pengirim di
+   BANGSAYUR_VENDOR_IDS, atau di mode demo dari nama pengirim "Tukang
+   Sayur"). Kalau warga biasa yang minta ACC atau lunas, tolak sopan: itu
+   urusan tukang sayur.
    Untuk ACC: cek dulu daftar_menunggu_acc supaya tahu nomor pesanannya.
 4. Setiap pesanan yang dicatat status bayarnya 'belum' sampai ada yang bilang
    sudah bayar (tandai_lunas). Jangan pernah bilang "sudah lunas" tanpa tool.
@@ -400,6 +402,12 @@ _TOOL_DISPATCH = {
 _JSON_BLOCK = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 
 
+# HTTP 429/500/502/503 boleh dicoba ulang; 400/401/404 TIDAK (percuma).
+# Backoff 1 dtk sebelum percobaan ke-2, 2 dtk sebelum percobaan ke-3.
+_RETRYABLE_CODES = {429, 500, 502, 503}
+_RETRY_BACKOFFS = (1, 2)
+
+
 def _call_model(messages, use_tools=True, max_tokens=1024, db_path=None):
     payload = {
         "model": MODEL,
@@ -418,12 +426,24 @@ def _call_model(messages, use_tools=True, max_tokens=1024, db_path=None):
     )
     add_surrogate_to_request(req, "custom.baseten",
                              allowed_hosts=["inference.baseten.co"])
-    try:
-        with urllib.request.build_opener().open(req, timeout=180) as resp:
-            data = read_json_response(resp)
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:500]
-        raise RuntimeError(f"Baseten API error {exc.code}: {detail}") from exc
+    # Retry 2x (total 3 percobaan) hanya untuk 429/500/502/503 (rate limit
+    # atau galat server sementara). 400/401/404 langsung raise.
+    # Timeout 180 dtk per percobaan, seperti sebelumnya.
+    data = None
+    for attempt in range(3):
+        try:
+            with urllib.request.build_opener().open(req, timeout=180) as resp:
+                data = read_json_response(resp)
+            break
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:500]
+            err = RuntimeError(f"Baseten API error {exc.code}: {detail}")
+            if exc.code in _RETRYABLE_CODES and attempt < 2:
+                print(f"[agent] Baseten {exc.code}, retry {attempt + 1}/2 "
+                      f"dalam {_RETRY_BACKOFFS[attempt]} dtk", flush=True)
+                time.sleep(_RETRY_BACKOFFS[attempt])
+                continue
+            raise err from exc
     msg = data["choices"][0]["message"]
     # Catat pemakaian token (best-effort, jangan rusak balasan kalau gagal).
     try:
@@ -440,9 +460,10 @@ def _call_model(messages, use_tools=True, max_tokens=1024, db_path=None):
 # Tools yang HANYA boleh dijalankan atas perintah tukang sayur.
 # Dienforce di _execute (bukan cuma di prompt) supaya warga tidak bisa
 # menandai lunas sendiri / mengubah harga / ACC pesanan orang lewat chat.
-# Catatan: cek vendor di sini masih berdasarkan nama pengirim (bukan ID
-# ter-autentikasi) — lihat README; itu keterbatasan yang diketahui dan
-# harus diganti pemetaan ID pengguna sebelum dipakai di produksi nyata.
+# Vendor dikenali dari ID pengirim (BANGSAYUR_VENDOR_IDS) — lihat
+# _is_vendor. Kalau daftar ID kosong (mode demo), fallback ke nama
+# pengirim di VENDOR_SENDERS; itu DEMO-ONLY, nama pengirim bisa dipalsu
+# siapa pun, JANGAN dipakai di produksi nyata.
 VENDOR_TOOLS = {
     "konfirmasi_pesanan", "tandai_lunas", "tandai_bon",
     "tandai_tidak_diambil", "tandai_diantar", "atur_harga_stok",
@@ -461,8 +482,36 @@ SCOPED_TOOLS = {
 VENDOR_SENDERS = {"warga", "tukang sayur", "bang sayur", "toko", "pemilik"}
 
 
-def _is_vendor(sender):
-    return (sender or "").strip().lower() in VENDOR_SENDERS
+def _vendor_ids():
+    """ID vendor dari env BANGSAYUR_VENDOR_IDS (dipisah koma, lower/strip).
+
+    Daftar kosong = mode demo: tidak ada ID yang dikenali, _is_vendor
+    fallback ke nama pengirim.
+    """
+    raw = os.environ.get("BANGSAYUR_VENDOR_IDS", "")
+    return {v.strip().lower() for v in raw.split(",") if v.strip()}
+
+
+def _is_vendor(sender, sender_id=None):
+    """True kalau pengirim adalah tukang sayur.
+
+    Prioritas: sender_id (ID pengguna, mis. Mattermost user id) yang ada
+    di BANGSAYUR_VENDOR_IDS. Kalau daftar ID kosong (mode demo), fallback
+    ke nama pengirim di VENDOR_SENDERS — DEMO-ONLY, nama pengirim bisa
+    dipalsu siapa pun, JANGAN dipakai di produksi. Kalau daftar ID diset,
+    nama saja TIDAK cukup: sender_id harus cocok dengan daftar.
+    """
+    ids = _vendor_ids()
+    if sender_id is not None and str(sender_id).strip():
+        if str(sender_id).strip().lower() in ids:
+            return True
+        if ids:
+            # Daftar ID diset dan ID ini tidak dikenal -> bukan vendor,
+            # walaupun namanya "Tukang Sayur".
+            return False
+    if not ids:
+        return (sender or "").strip().lower() in VENDOR_SENDERS
+    return False
 
 
 def _nama_norm(nama):
@@ -497,18 +546,18 @@ def _execute_scoped(name, args, db_path, sender):
     return {"error": f"Tool '{name}' tidak dikenal."}
 
 
-def _execute(name, args, db_path, sender=None):
+def _execute(name, args, db_path, sender=None, sender_id=None):
     # Untuk ubah/batalkan pesanan, kalau model tidak mengirim nama pemilik,
     # isi dari pengirim supaya cek pemilik tetap berlaku untuk warga biasa.
     # Vendor dikecualikan (boleh mengurus pesanan siapa pun).
     if name in ("ubah_pesanan", "batalkan_pesanan") and sender \
-            and not _is_vendor(sender) and not (args or {}).get("nama"):
+            and not _is_vendor(sender, sender_id) and not (args or {}).get("nama"):
         args = dict(args or {})
         args["nama"] = sender
-    if name in SCOPED_TOOLS and not _is_vendor(sender):
+    if name in SCOPED_TOOLS and not _is_vendor(sender, sender_id):
         return _execute_scoped(name, args, db_path, sender)
     if name in VENDOR_TOOLS:
-        if not _is_vendor(sender):
+        if not _is_vendor(sender, sender_id):
             return {"error": "Hanya tukang sayur yang bisa melakukan ini. "
                              "Kalau kamu warga, sampaikan ke tukang sayur ya."}
     fn = _TOOL_DISPATCH.get(name)
@@ -521,12 +570,15 @@ def _execute(name, args, db_path, sender=None):
 
 
 def run_turn(user_message, history=None, db_path=None, max_iterations=4,
-             sender=None):
+             sender=None, sender_id=None):
     """Satu giliran chat: kembalikan {reply, tool_calls, path}.
 
     sender = nama pengirim ("Bu Sari", "Tukang Sayur", ...). Dipakai
     _execute untuk memblokir tool khusus vendor kalau pengirimnya warga.
-    Kalau sender kosong, coba baca dari awalan pesan "Nama: isi".
+    sender_id = ID pengguna (mis. Mattermost user id); kalau diisi dan
+    BANGSAYUR_VENDOR_IDS diset, inilah yang menentukan vendor — nama saja
+    tidak cukup. Kalau sender kosong, coba baca dari awalan pesan
+    "Nama: isi".
     """
     if sender is None:
         m = re.match(r"\s*([^:]{1,40}):\s", user_message or "")
@@ -549,7 +601,8 @@ def run_turn(user_message, history=None, db_path=None, max_iterations=4,
                     args = json.loads(fn.get("arguments") or "{}")
                 except json.JSONDecodeError:
                     args = {}
-                result = _execute(fn["name"], args, db_path, sender=sender)
+                result = _execute(fn["name"], args, db_path, sender=sender,
+                                  sender_id=sender_id)
                 executed.append({"tool": fn["name"], "args": args,
                                  "result": result})
                 messages.append({
@@ -567,7 +620,8 @@ def run_turn(user_message, history=None, db_path=None, max_iterations=4,
             if action and action.get("action") in _TOOL_DISPATCH:
                 path = "json_fallback"
                 result = _execute(action["action"], action.get("args") or {},
-                                  db_path, sender=sender)
+                                  db_path, sender=sender,
+                                  sender_id=sender_id)
                 executed.append({"tool": action["action"],
                                  "args": action.get("args") or {},
                                  "result": result})
