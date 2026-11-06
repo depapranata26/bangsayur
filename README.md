@@ -170,11 +170,15 @@ before testing.
 
 ### 0. Prerequisites
 
-- Python 3.12+, PostgreSQL 16, Node.js 20+ (for Switch Console, optional)
+- Python 3.12+ (`pip install -r requirements.txt` — only `httpx`, for demo scripts;
+  the agent + webapp themselves use only the stdlib), PostgreSQL 16,
+  Node.js 20+ (for Switch Console, optional)
 - `BASENTEN_API_KEY` — Baseten API key for the Muse Spark model
   (or a Secure Vault integration; the key is **never** written in the repo)
 - Switch repo: `git clone https://github.com/sandbox-quantum/switch` to
-  `~/workspace/switch-src` (or adjust the paths in the demo scripts)
+  `../switch-src` next to this repo, or set `SWITCH_SRC` to its path.
+  Likewise set `BANGSAYUR_HOME` if this repo lives elsewhere; all
+  scripts resolve paths relative to the repo root by default.
 
 ### 1. Switch Core + PostgreSQL
 
@@ -218,7 +222,8 @@ import os
 print(SwitchClient.register('http://127.0.0.1:8000', 'bangsayur',
       'Agen tukang sayur keliling untuk warga komplek',
       os.environ['AGENT_REGISTRATION_TOKEN']))"
-# Save {id, api_key} to .switch-agent.json (chmod 600, GITIGNORED).
+# Save {id, api_key} to .switch-agent.json in the repo root
+# (chmod 600, GITIGNORED; override with SWITCH_CREDS_FILE).
 # Then open the agent's addressing policy to all residents:
 python3 ../demo/open_addressing.py   # PUT {"policy": null} as admin
 # (see demo/open_addressing.py — the agent cannot change its own setting)
@@ -236,8 +241,10 @@ python3 ../demo/run_scenario.py
 # Transcript + DB verification: demo/transcript-demo.md
 ```
 
-Reset the demo anytime: `rm data/bangsayur.db .room.json`, then repeat
-step 4 (the runner creates a new room + Mattermost channel).
+Reset the demo anytime (from the repo root): `rm data/bangsayur.db .room.json`,
+then repeat step 4 (the runner creates a new room + Mattermost channel).
+`.room.json` and `.switch-agent.json` both live in the repo root
+(override with `SWITCH_ROOM_FILE` / `SWITCH_CREDS_FILE`).
 
 ## Implementation notes (traps already passed)
 
@@ -277,7 +284,7 @@ step 4 (the runner creates a new room + Mattermost channel).
 bangsayur/
 ├── README.md           # this file (English)
 ├── README-ID.md        # Indonesian version
-├── docker-compose.yml      # Switch + Mattermost + Postgres (needs Docker)
+├── docker-compose.yml      # Switch + Mattermost + Postgres (needs Docker; UNTESTED — see header in the file, bare-metal steps above are the verified path)
 ├── .env.example            # example env, NO secrets
 ├── .gitignore              # .switch-agent.json, .env, *.db, venv/, __pycache__/
 ├── agent/

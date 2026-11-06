@@ -159,7 +159,9 @@ lalu verifikasi PID baru sebelum tes.
 - `BASENTEN_API_KEY` — API key Baseten untuk model Muse Spark
   (atau integrasi Secure Vault; key **tidak pernah** ditulis di repo)
 - Repo Switch: `git clone https://github.com/sandbox-quantum/switch` ke
-  `~/workspace/switch-src` (atau sesuaikan path di script demo)
+  `../switch-src` di sebelah repo ini, atau set `SWITCH_SRC` ke path-nya.
+  Set juga `BANGSAYUR_HOME` kalau repo ini ada di tempat lain; semua
+  script menyelesaikan path relatif terhadap repo root.
 
 ### 1. Switch Core + PostgreSQL
 
@@ -202,7 +204,8 @@ import os
 print(SwitchClient.register('http://127.0.0.1:8000', 'bangsayur',
       'Agen tukang sayur keliling untuk warga komplek',
       os.environ['AGENT_REGISTRATION_TOKEN']))"
-# Simpan {id, api_key} ke .switch-agent.json (chmod 600, GITIGNORED).
+# Simpan {id, api_key} ke .switch-agent.json di repo root
+# (chmod 600, GITIGNORED; override dengan SWITCH_CREDS_FILE).
 # Lalu buka addressing policy agen untuk semua warga:
 python3 ../demo/open_addressing.py   # PUT {"policy": null} sebagai admin
 # (lihat demo/open_addressing.py — agen tidak bisa mengubah setting sendiri)
@@ -219,8 +222,10 @@ python3 ../demo/run_scenario.py
 # Transkrip + verifikasi DB: demo/transcript-demo.md
 ```
 
-Reset demo kapan saja: `rm data/bangsayur.db .room.json`, lalu ulang langkah 4
-(runner membuat room + channel Mattermost baru).
+Reset demo kapan saja (dari repo root): `rm data/bangsayur.db .room.json`,
+lalu ulang langkah 4 (runner membuat room + channel Mattermost baru).
+`.room.json` dan `.switch-agent.json` sama-sama ada di repo root
+(override dengan `SWITCH_ROOM_FILE` / `SWITCH_CREDS_FILE`).
 
 ## Catatan implementasi (jebakan yang sudah dilewati)
 
@@ -256,7 +261,7 @@ Reset demo kapan saja: `rm data/bangsayur.db .room.json`, lalu ulang langkah 4
 ```
 bangsayur/
 ├── README.md
-├── docker-compose.yml      # Switch + Mattermost + Postgres (butuh Docker)
+├── docker-compose.yml      # Switch + Mattermost + Postgres (butuh Docker; BELUM TERUJI — lihat header file, langkah bare-metal di atas yang terverifikasi)
 ├── .env.example            # contoh env, TANPA secret
 ├── .gitignore              # .switch-agent.json, .env, *.db, venv/, __pycache__/
 ├── agent/

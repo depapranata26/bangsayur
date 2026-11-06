@@ -9,7 +9,10 @@ import sys
 import threading
 import time
 
-sys.path.insert(0, os.path.expanduser("~/workspace/bangsayur/agent"))
+REPO_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+BANGSAYUR_HOME = os.environ.get("BANGSAYUR_HOME") or REPO_ROOT
+sys.path.insert(0, os.path.join(REPO_ROOT, "agent"))
 os.environ.pop("http_proxy", None); os.environ.pop("https_proxy", None)
 os.environ.pop("HTTP_PROXY", None); os.environ.pop("HTTPS_PROXY", None)
 os.environ.pop("ALL_PROXY", None); os.environ.pop("all_proxy", None)
@@ -17,7 +20,9 @@ os.environ.pop("ALL_PROXY", None); os.environ.pop("all_proxy", None)
 from switch_client import SwitchClient  # noqa: E402
 
 BASE = os.environ.get("SWITCH_BASE_URL", "http://127.0.0.1:8000")
-CREDS = json.load(open(os.path.expanduser("~/workspace/bangsayur/.switch-agent.json")))
+CREDS_PATH = os.environ.get("SWITCH_CREDS_FILE") or os.path.join(
+    BANGSAYUR_HOME, ".switch-agent.json")
+CREDS = json.load(open(CREDS_PATH))
 c = SwitchClient(BASE, CREDS["id"], CREDS["api_key"])
 
 events = []
@@ -39,7 +44,9 @@ t = threading.Thread(target=reader, daemon=True)
 t.start()
 time.sleep(3)
 
-room_id = json.load(open(os.path.expanduser("~/workspace/bangsayur/.room.json")))["room_id"]
+ROOM_PATH = os.environ.get("SWITCH_ROOM_FILE") or os.path.join(
+    BANGSAYUR_HOME, ".room.json")
+room_id = json.load(open(ROOM_PATH))["room_id"]
 print("REUSE ROOM:", room_id, flush=True)
 print("connect:", json.dumps(c.op("connect_to_room", {"room_id": room_id}), ensure_ascii=False)[:400], flush=True)
 

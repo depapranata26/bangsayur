@@ -1,0 +1,5 @@
+# BangSayur — Python 3.12+
+# Agen inti (agent/ + webapp/) hanya pakai stdlib.
+# httpx hanya dipakai script demo (demo/*.py) untuk bicara ke
+# Switch / Mattermost lewat HTTP.
+httpx>=0.27

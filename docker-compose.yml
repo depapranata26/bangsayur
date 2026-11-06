@@ -1,16 +1,27 @@
 # BangSayur — deployment Switch + Mattermost via Docker Compose.
 #
-# Cara pakai (butuh Docker):
+# ⚠️  BELUM TERUJI (UNTESTED) — file ini belum pernah dijalankan end-to-end
+#     (tidak ada Docker di VM pengembangan). JANGAN jadikan ini jalur
+#     reproduksi utama. Jalur yang terverifikasi adalah langkah bare-metal
+#     di README.md ("How to run").
+#
+# Cara pakai (butuh Docker, dengan risiko di atas):
 #   cp .env.example .env   # lalu isi password/secret
+#   # Build dulu image switch-core secara manual dari repo Switch:
+#   #   git clone https://github.com/sandbox-quantum/switch ../switch-src
+#   #   docker build -t switch-core:local -f \
+#   #     ../switch-src/deploy/local/Dockerfile.switch-core ../switch-src
 #   docker compose up -d
 #   # setup bridge + user demo: jalankan demo/setup_bridge.sh dengan
 #   # SWITCH_URL/MATTERMOST_URL diarahkan ke service compose.
 #
-# Catatan: di VM pengembangan proyek ini Docker TIDAK tersedia, jadi yang
-# dijalankan adalah proses bare (Postgres apt + binary Mattermost +
-# `uv run` switch-core). Lihat README.md bagian "Cara menjalankan".
-# File ini mendokumentasikan deployment yang direkomendasikan, mengikuti
-# deploy/local/docker-compose.yml dari repo Switch.
+# Yang diperbaiki di revisi ini (tetap belum teruji):
+# - Dihapus `build: context: ../switch-src` yang tidak ada di repo ini.
+#   `switch-core:local` sekarang harus di-build manual (lihat atas).
+# - Postgres menjalankan docker/postgres-init/01-mattermost.sh saat
+#   pertama kali, yang membuat role `mmuser` + database `mattermost`
+#   yang dipakai service mattermost (sebelumnya tidak pernah dibuat,
+#   sehingga Mattermost pasti gagal start).
 
 services:
   postgres:
@@ -19,8 +30,10 @@ services:
       POSTGRES_DB: ${DB_NAME:-switch}
       POSTGRES_USER: ${DB_OWNER:-postgres}
       POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?set in .env}
+      MM_PASSWORD: ${MM_PASSWORD:?set in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_OWNER:-postgres}"]
       interval: 5s
@@ -28,12 +41,8 @@ services:
       retries: 10
 
   switch-core:
-    # Ganti dengan image Switch yang sesuai, atau build dari repo Switch:
-    #   https://github.com/sandbox-quantum/switch
+    # TIDAK ADA image publik Switch — build manual dulu (lihat header file).
     image: switch-core:local
-    build:
-      context: ../switch-src
-      dockerfile: deploy/local/Dockerfile.switch-core
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"

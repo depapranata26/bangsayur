@@ -107,7 +107,11 @@ ATURAN KERAS:
     atur_status_toko).
 15. PRIVASI — JANGAN PERNAH sebutkan alamat atau nomor HP warga lain ke
     warga yang bertanya. Rute lengkap (dengan alamat) HANYA untuk tukang
-    sayur.
+    sayur. Rekap harian, rekap omzet, dan tagihan belum bayar HANYA untuk
+    tukang sayur secara penuh; warga biasa hanya melihat pesanannya
+    SENDIRI (sistem memfilter otomatis berdasarkan nama pengirim).
+    cek_pesanan warga biasa tidak menampilkan alamat, dan hanya untuk
+    pesanannya sendiri.
 16. BIAYA & BACKUP — tukang sayur boleh tanya pemakaian AI (cek_biaya:
     jumlah panggilan + token, harga Rupiah tidak ditampilkan karena tarif
     berubah) dan minta backup data (buat_backup) tiap akhir minggu.
@@ -159,7 +163,7 @@ OPENAI_TOOLS = [
     }},
     {"type": "function", "function": {
         "name": "cek_pesanan",
-        "description": "Detail satu pesanan: status, pelanggan, item, total, status bayar.",
+        "description": "Detail satu pesanan: status, pelanggan, item, total, status bayar. Tukang sayur melihat semuanya; warga biasa hanya pesanannya sendiri dan tanpa alamat.",
         "parameters": {"type": "object", "properties": {
             "pesanan_id": {"type": "integer"},
         }, "required": ["pesanan_id"]},
@@ -175,9 +179,10 @@ OPENAI_TOOLS = [
     }},
     {"type": "function", "function": {
         "name": "ubah_pesanan",
-        "description": "Ganti isi pesanan yang masih menunggu ACC/DP. Total dihitung ulang. Setelah ACC tidak bisa diubah.",
+        "description": "Ganti isi pesanan yang masih menunggu ACC/DP. Total dihitung ulang. Setelah ACC tidak bisa diubah. Kalau nama diisi, harus cocok dengan pemilik pesanan.",
         "parameters": {"type": "object", "properties": {
             "pesanan_id": {"type": "integer"},
+            "nama": {"type": "string", "description": "Nama pemilik pesanan, opsional tapi disarankan."},
             "items": {"type": "array", "items": {"type": "object", "properties": {
                 "nama_item": {"type": "string"},
                 "qty": {"type": "number"}}, "required": ["nama_item", "qty"]}},
@@ -284,7 +289,7 @@ OPENAI_TOOLS = [
     }},
     {"type": "function", "function": {
         "name": "rekap_harian",
-        "description": "Rekap pesanan hari ini (atau tanggal tertentu): jumlah pesanan, total per item, omzet.",
+        "description": "Rekap pesanan hari ini (atau tanggal tertentu): jumlah pesanan, total per item, omzet. Tukang sayur melihat semuanya; warga biasa hanya pesanannya sendiri.",
         "parameters": {"type": "object", "properties": {
             "tanggal": {"type": "string", "description": "YYYY-MM-DD, kosongkan untuk hari ini."},
         }},
@@ -310,19 +315,21 @@ OPENAI_TOOLS = [
     }},
     {"type": "function", "function": {
         "name": "tagihan_belum_bayar",
-        "description": "Daftar semua pesanan yang belum dibayar, semua tanggal.",
+        "description": "Daftar pesanan yang belum dibayar, semua tanggal. Tukang sayur melihat semuanya; warga biasa hanya tagihannya sendiri.",
         "parameters": {"type": "object", "properties": {}},
     }},
     {"type": "function", "function": {
         "name": "tandai_lunas",
-        "description": "Tandai satu pesanan sebagai lunas.",
+        "description": "Tandai satu pesanan sebagai lunas. HANYA untuk tukang sayur.",
         "parameters": {"type": "object", "properties": {
             "pesanan_id": {"type": "integer"},
+            "metode": {"type": "string", "enum": ["tunai", "transfer", "qris"],
+                       "description": "Metode bayar, opsional."},
         }, "required": ["pesanan_id"]},
     }},
     {"type": "function", "function": {
         "name": "rekap_omzet",
-        "description": "Omzet pada rentang tanggal (default 7 hari terakhir).",
+        "description": "Omzet pada rentang tanggal (default 7 hari terakhir). Tukang sayur melihat semuanya; warga biasa hanya total belanjanya sendiri.",
         "parameters": {"type": "object", "properties": {
             "mulai": {"type": "string", "description": "YYYY-MM-DD."},
             "sampai": {"type": "string", "description": "YYYY-MM-DD."},
@@ -359,7 +366,8 @@ _TOOL_DISPATCH = {
     "atur_harga_stok": lambda args, db: tools_mod.atur_harga_stok(
         args["nama_item"], args.get("harga"), args.get("stok"), db_path=db),
     "ubah_pesanan": lambda args, db: tools_mod.ubah_pesanan(
-        args["pesanan_id"], args["items"], db_path=db),
+        args["pesanan_id"], args["items"], db_path=db,
+        nama=args.get("nama")),
     "batalkan_pesanan": lambda args, db: tools_mod.batalkan_pesanan(
         args["pesanan_id"], args.get("nama"), db_path=db),
     "catat_komplain": lambda args, db: tools_mod.catat_komplain(
@@ -432,19 +440,75 @@ def _call_model(messages, use_tools=True, max_tokens=1024, db_path=None):
 # Tools yang HANYA boleh dijalankan atas perintah tukang sayur.
 # Dienforce di _execute (bukan cuma di prompt) supaya warga tidak bisa
 # menandai lunas sendiri / mengubah harga / ACC pesanan orang lewat chat.
+# Catatan: cek vendor di sini masih berdasarkan nama pengirim (bukan ID
+# ter-autentikasi) — lihat README; itu keterbatasan yang diketahui dan
+# harus diganti pemetaan ID pengguna sebelum dipakai di produksi nyata.
 VENDOR_TOOLS = {
     "konfirmasi_pesanan", "tandai_lunas", "tandai_bon",
     "tandai_tidak_diambil", "tandai_diantar", "atur_harga_stok",
     "atur_status_toko", "atur_cutoff", "daftar_komplain",
     "daftar_menunggu_acc", "buat_backup", "cek_biaya", "rute_hari_ini",
+    # Data penuh (semua warga) hanya untuk vendor; warga biasa mendapat
+    # versi yang difilter/diredaksi — lihat _execute / SCOPED_TOOLS.
+    "cek_pesanan", "rekap_omzet", "rekap_harian", "tagihan_belum_bayar",
+}
+# Subset VENDOR_TOOLS yang punya versi aman untuk warga biasa:
+# rekap/tagihan difilter ke pesanan pengirim sendiri, cek_pesanan
+# diredaksi (tanpa alamat) dan hanya untuk pesanan pengirim sendiri.
+SCOPED_TOOLS = {
+    "cek_pesanan", "rekap_omzet", "rekap_harian", "tagihan_belum_bayar",
 }
 VENDOR_SENDERS = {"warga", "tukang sayur", "bang sayur", "toko", "pemilik"}
 
 
+def _is_vendor(sender):
+    return (sender or "").strip().lower() in VENDOR_SENDERS
+
+
+def _nama_norm(nama):
+    return (nama or "").strip().lower().replace(" ", "")
+
+
+def _execute_scoped(name, args, db_path, sender):
+    """Versi aman untuk warga non-vendor: hanya data milik pengirim."""
+    try:
+        if name == "cek_pesanan":
+            result = tools_mod.cek_pesanan(args["pesanan_id"], db_path=db_path)
+            if not result.get("ok"):
+                return result
+            if _nama_norm(result.get("nama")) != _nama_norm(sender):
+                return {"error": "Pesanan itu bukan milikmu, jadi saya "
+                                 "tidak bisa menampilkan detailnya."}
+            result = dict(result)
+            result["alamat"] = ""
+            result.pop("no_hp", None)
+            return result
+        if name == "rekap_harian":
+            return tools_mod.rekap_harian(
+                args.get("tanggal") or None, db_path=db_path, nama=sender)
+        if name == "tagihan_belum_bayar":
+            return tools_mod.tagihan_belum_bayar(db_path=db_path, nama=sender)
+        if name == "rekap_omzet":
+            return tools_mod.rekap_omzet(
+                args.get("mulai"), args.get("sampai"),
+                db_path=db_path, nama=sender)
+    except (ValueError, KeyError, TypeError) as exc:
+        return {"error": str(exc)}
+    return {"error": f"Tool '{name}' tidak dikenal."}
+
+
 def _execute(name, args, db_path, sender=None):
+    # Untuk ubah/batalkan pesanan, kalau model tidak mengirim nama pemilik,
+    # isi dari pengirim supaya cek pemilik tetap berlaku untuk warga biasa.
+    # Vendor dikecualikan (boleh mengurus pesanan siapa pun).
+    if name in ("ubah_pesanan", "batalkan_pesanan") and sender \
+            and not _is_vendor(sender) and not (args or {}).get("nama"):
+        args = dict(args or {})
+        args["nama"] = sender
+    if name in SCOPED_TOOLS and not _is_vendor(sender):
+        return _execute_scoped(name, args, db_path, sender)
     if name in VENDOR_TOOLS:
-        s = (sender or "").strip().lower()
-        if s not in VENDOR_SENDERS:
+        if not _is_vendor(sender):
             return {"error": "Hanya tukang sayur yang bisa melakukan ini. "
                              "Kalau kamu warga, sampaikan ke tukang sayur ya."}
     fn = _TOOL_DISPATCH.get(name)
@@ -516,5 +580,8 @@ def run_turn(user_message, history=None, db_path=None, max_iterations=4,
                 })
                 continue
         return {"reply": content, "tool_calls": executed, "path": path}
-    return {"reply": messages[-1].get("content", "") if messages else "",
+    # Iterasi habis tanpa balasan akhir dari model. JANGAN kembalikan
+    # messages[-1] — isinya bisa JSON hasil tool, bukan kalimat untuk warga.
+    return {"reply": "Maaf, saya belum bisa menyelesaikan permintaan itu. "
+                     "Coba ulangi dengan kalimat yang lebih singkat ya.",
             "tool_calls": executed, "path": path}

@@ -32,8 +32,16 @@ from agent import run_turn  # noqa: E402
 from switch_client import SwitchClient  # noqa: E402
 
 BASE = os.environ.get("SWITCH_BASE_URL", "http://127.0.0.1:8000")
-ROOM_FILE = os.path.expanduser("~/workspace/bangsayur/.room.json")
-CREDS_FILE = os.path.expanduser("~/workspace/bangsayur/.switch-agent.json")
+# Path relatif terhadap repo root, bukan path absolut mesin pengembang.
+# Override: BANGSAYUR_HOME (direktori repo), atau langsung
+# SWITCH_ROOM_FILE / SWITCH_CREDS_FILE. File-file ini tetap gitignored.
+REPO_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+_BANGSAYUR_HOME = os.environ.get("BANGSAYUR_HOME") or REPO_ROOT
+ROOM_FILE = os.environ.get("SWITCH_ROOM_FILE") or os.path.join(
+    _BANGSAYUR_HOME, ".room.json")
+CREDS_FILE = os.environ.get("SWITCH_CREDS_FILE") or os.path.join(
+    _BANGSAYUR_HOME, ".switch-agent.json")
 MENTION_RE = re.compile(r"@bangsayur\b", re.IGNORECASE)
 
 
