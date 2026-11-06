@@ -16,7 +16,9 @@ Otak agen: **Muse Spark** (`meta-models/muse-spark-open-1026`) via Baseten
 ## Yang sudah terbukti jalan (live, 5 Nov 2026)
 
 Skenario demo lengkap di room Mattermost **Warung Sayur - Komplek Melati**,
-transkrip penuh di [`demo/transcript-demo.md`](demo/transcript-demo.md):
+transkrip penuh di [`demo/transcript-demo.md`](demo/transcript-demo.md)
+(versi Inggris dengan terjemahan:
+[`demo/transcript-demo-EN.md`](demo/transcript-demo-EN.md)):
 
 | # | Warga | Agen | Hasil |
 |---|-------|------|-------|
@@ -270,6 +272,7 @@ lalu ulang langkah 4 (runner membuat room + channel Mattermost baru).
 ```
 bangsayur/
 ├── README.md
+├── SUBMISSION.md       # teks siap salin-tempel form submit hackathon (Inggris + arti Indonesia)
 ├── docker-compose.yml      # Switch + Mattermost + Postgres (butuh Docker; BELUM TERUJI — lihat header file, langkah bare-metal di atas yang terverifikasi)
 ├── .env.example            # contoh env, TANPA secret
 ├── .gitignore              # .switch-agent.json, .env, *.db, venv/, __pycache__/
@@ -289,15 +292,20 @@ bangsayur/
     ├── run_scenario.py     # kirim 6 langkah demo sebagai warga
     ├── probe_room.py       # probe sekali-pakai (stream/room/event)
     ├── transcript-demo.md  # transkrip demo (YA→ACC, terverifikasi via simulasi lokal)
+    ├── transcript-demo-EN.md  # versi Inggris, balasan agen tetap Indonesia asli + terjemahan
     ├── transcript-webapp.md  # output run_webapp_demo.py --mock
+    ├── transcript-webapp-EN.md  # versi Inggris transkrip webapp (22 cek)
     ├── run_webapp_demo.py  # jalankan ulang demo 6 langkah, --mock atau --live
-    └── VIDEO_SCRIPT.md     # naskah shot-by-shot video demo <3 menit
+    ├── VIDEO_SCRIPT.md     # naskah shot-by-shot video demo <3 menit
+    └── VIDEO_SCRIPT-EN.md  # versi bilingual Inggris/Indonesia naskah video
 ```
 
 ## Video demo (belum direkam)
 
 **Status: BELUM DIREKAM.** Ikuti naskah shot-by-shot di
-`demo/VIDEO_SCRIPT.md` (9 shot, 2 menit 58 detik, direkam dari HP):
+`demo/VIDEO_SCRIPT.md` (9 shot, 2 menit 58 detik, direkam dari HP;
+versi bilingual Inggris: `demo/VIDEO_SCRIPT-EN.md`). Teks siap
+salin-tempel untuk form submit ada di [`SUBMISSION.md`](SUBMISSION.md):
 Bu Sari pesan → ringkasan + YA → menunggu ACC → vendor ACC → stok
 berkurang; Pak Budi dengan alur yang sama; Bu Ratna tanya rekap (hanya
 miliknya, 0); vendor tanya omzet Rp98.000 dan rute (Pak Budi

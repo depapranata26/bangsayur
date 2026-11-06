@@ -21,7 +21,9 @@ Indonesian with the residents; this README is in English for the judges).
 ## Proven working (live, Nov 5, 2026)
 
 Full demo scenario in the Mattermost room **Warung Sayur - Komplek Melati**,
-complete transcript in [`demo/transcript-demo.md`](demo/transcript-demo.md):
+complete transcript in [`demo/transcript-demo.md`](demo/transcript-demo.md)
+(English version with translations:
+[`demo/transcript-demo-EN.md`](demo/transcript-demo-EN.md)):
 
 | # | Resident | Agent | Result |
 |---|----------|-------|--------|
@@ -293,6 +295,7 @@ then repeat step 4 (the runner creates a new room + Mattermost channel).
 bangsayur/
 ├── README.md           # this file (English)
 ├── README-ID.md        # Indonesian version
+├── SUBMISSION.md       # ready-to-paste hackathon submission text (English + Indonesian meaning)
 ├── docker-compose.yml      # Switch + Mattermost + Postgres (needs Docker; UNTESTED — see header in the file, bare-metal steps above are the verified path)
 ├── .env.example            # example env, NO secrets
 ├── .gitignore              # .switch-agent.json, .env, *.db, venv/, __pycache__/
@@ -315,15 +318,20 @@ bangsayur/
     ├── run_scenario.py     # send the 6-step demo as residents
     ├── probe_room.py       # one-off probe (stream/room/event)
     ├── transcript-demo.md  # demo transcript (YA→ACC, verified via local simulation)
+    ├── transcript-demo-EN.md  # English version, agent replies in original Indonesian + translation
     ├── transcript-webapp.md  # output of run_webapp_demo.py --mock
+    ├── transcript-webapp-EN.md  # English version of the webapp transcript (22 checks)
     ├── run_webapp_demo.py  # re-run the 6-step demo, --mock or --live
-    └── VIDEO_SCRIPT.md     # shot-by-shot script for the <3 min demo video
+    ├── VIDEO_SCRIPT.md     # shot-by-shot script for the <3 min demo video
+    └── VIDEO_SCRIPT-EN.md  # bilingual English/Indonesian version of the video script
 ```
 
 ## Demo video (not recorded yet)
 
 **Status: NOT RECORDED.** Follow the shot-by-shot script in
-`demo/VIDEO_SCRIPT.md` (9 shots, 2 min 58 sec, recorded from a phone):
+`demo/VIDEO_SCRIPT.md` (9 shots, 2 min 58 sec, recorded from a phone;
+bilingual English version: `demo/VIDEO_SCRIPT-EN.md`). Ready-to-paste
+submission text is in [`SUBMISSION.md`](SUBMISSION.md):
 Bu Sari orders → summary + YA → waiting for ACC → vendor ACC → stock
 drops; Pak Budi the same way; Bu Ratna asks for her recap (only her own,
 0); the vendor asks for revenue Rp98,000 and the route (Pak Budi
