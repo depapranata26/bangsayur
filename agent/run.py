@@ -10,9 +10,26 @@ Arsitektur (ditemukan lewat probe, BUKAN dari dok):
      `addressed` diabaikan — addressing policy agen sudah dibuka (anyone)
      via Gateway API, dan runner menyaring sendiri berdasarkan mention.
 
+DUA ROOM (jangan dicampur — permintaan user 2026-11-07):
+  - Room WARGA (#pesan-sayur): warga pesan sayur, hanya lihat milik
+    sendiri. Jalankan:  BANGSAYUR_ROLE=warga python3 run.py
+  - Room VENDOR (#dapur-bangsayur): hanya tukang sayur — ACC/tolak,
+    rekap, rute, tagihan penuh. Jalankan proses KEDUA:
+    BANGSAYUR_ROLE=vendor SWITCH_VENDOR_ROOM_ID=... python3 run.py
+  Satu koneksi Switch hanya bisa claim SATU room (post_message tanpa
+  room_id masuk ke room yang di-claim koneksi itu), jadi dua room =
+  dua proses runner, berbagi DB dan kredensial agen yang sama.
+  Pesanan baru dari room warga muncul sebagai "menunggu ACC" di room
+  vendor; vendor ACC di room vendor, lalu agen memberi tahu warga di
+  room warga bahwa pesanannya dikonfirmasi.
+  STATUS: desain + kode pendukung ini sudah ada, tapi DUA ROOM BELUM
+  PERNAH DITES LIVE di Mattermost/Switch — jalankan dan buktikan dulu
+  sebelum mengklaimnya di demo/submit.
+
 Pemakaian:
   python3 run.py            # pakai .switch-agent.json + .room.json
   SWITCH_ROOM_ID=... python3 run.py
+  BANGSAYUR_ROLE=vendor python3 run.py   # room vendor (.vendor-room.json)
 """
 import json
 import os
@@ -40,8 +57,17 @@ REPO_ROOT = os.path.abspath(
 _BANGSAYUR_HOME = os.environ.get("BANGSAYUR_HOME") or REPO_ROOT
 ROOM_FILE = os.environ.get("SWITCH_ROOM_FILE") or os.path.join(
     _BANGSAYUR_HOME, ".room.json")
+VENDOR_ROOM_FILE = (
+    os.environ.get("SWITCH_VENDOR_ROOM_FILE")
+    or os.environ.get("BANGSAYUR_VENDOR_ROOM_FILE")
+    or os.path.join(_BANGSAYUR_HOME, ".vendor-room.json"))
 CREDS_FILE = os.environ.get("SWITCH_CREDS_FILE") or os.path.join(
     _BANGSAYUR_HOME, ".switch-agent.json")
+# BANGSAYUR_ROLE=warga (default, room #pesan-sayur) atau vendor
+# (room #dapur-bangsayur). Satu proses = satu room, lihat docstring.
+ROOM_ROLE = os.environ.get("BANGSAYUR_ROLE", "warga").strip().lower() or "warga"
+if ROOM_ROLE not in ("warga", "vendor"):
+    raise SystemExit("BANGSAYUR_ROLE harus 'warga' atau 'vendor'.")
 MENTION_RE = re.compile(r"@bangsayur\b", re.IGNORECASE)
 # Backoff reconnect SSE (detik); maks 5x gagal berturut-turut lalu fatal.
 RECONNECT_BACKOFFS = [2, 5, 10, 30, 30]
@@ -87,6 +113,38 @@ def resolve_room_id(client):
     room_id = res["result"]["id"]
     json.dump({"room_id": room_id}, open(ROOM_FILE, "w"))
     print(f"[run] room baru {room_id}", flush=True)
+    return room_id
+
+
+def resolve_vendor_room_id(client):
+    """Room vendor #dapur-bangsayur (hanya tukang sayur).
+
+    Pakai SWITCH_VENDOR_ROOM_ID / BANGSAYUR_VENDOR_ROOM_ID /
+    .vendor-room.json, atau buat room baru. Room ini dibuat terpisah dari
+    room warga — pesanan yang menunggu ACC dari room warga dibahas di
+    sini, dan warga biasa TIDAK diundang ke room ini (di Mattermost,
+    jadikan channel-nya private dan hanya undang akun vendor `warga`).
+    BELUM DITES LIVE: fungsi ini hanya membuat/membuka room-nya; alur
+    dua-room belum pernah dibuktikan terhadap Switch/Mattermost live.
+    """
+    room_id = (os.environ.get("SWITCH_VENDOR_ROOM_ID")
+               or os.environ.get("BANGSAYUR_VENDOR_ROOM_ID"))
+    if not room_id and os.path.exists(VENDOR_ROOM_FILE):
+        room_id = json.load(open(VENDOR_ROOM_FILE)).get("room_id")
+    if room_id:
+        print(f"[run] pakai room vendor {room_id}", flush=True)
+        return room_id
+    res = client.op("create_room", {
+        "name": "Dapur BangSayur - Vendor Only",
+        "description": "Room khusus tukang sayur: ACC pesanan, rekap, rute, tagihan. Warga biasa tidak ada di sini.",
+        "agent_names": ["bangsayur"],
+        "user_names": ["warga"],
+        "channel_type": "channel_public",
+        "instructions": "Room vendor BangSayur: hanya tukang sayur. Pesanan baru dari room warga muncul di sini sebagai menunggu ACC; ACC/tolak di sini, lalu beri tahu warga di room warga.",
+    })
+    room_id = res["result"]["id"]
+    json.dump({"room_id": room_id}, open(VENDOR_ROOM_FILE, "w"))
+    print(f"[run] room vendor baru {room_id}", flush=True)
     return room_id
 
 
@@ -196,12 +254,16 @@ def main():
         return 1
 
     client.start_heartbeat(interval=5.0)
-    room_id = resolve_room_id(client)
+    if ROOM_ROLE == "vendor":
+        room_id = resolve_vendor_room_id(client)
+    else:
+        room_id = resolve_room_id(client)
     print("[run] connect_to_room:",
           json.dumps(client.op("connect_to_room", {"room_id": room_id}))[:200],
           flush=True)
 
-    print("[run] BangSayur mendengarkan room", room_id, flush=True)
+    print(f"[run] BangSayur mendengarkan room {ROOM_ROLE} {room_id}",
+          flush=True)
     while True:
         try:
             ev = events.get(timeout=30)
@@ -228,7 +290,8 @@ def main():
         history = read_history(client, room_id)
         try:
             result = run_turn(f"{sender}: {body}", history=history,
-                              sender=sender, sender_id=sender_id)
+                              sender=sender, sender_id=sender_id,
+                              room_kind=ROOM_ROLE)
             reply = result.get("reply") or "Maaf, saya tidak mengerti."
         except Exception as e:
             print(f"[run] run_turn gagal: {e}", flush=True)

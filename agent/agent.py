@@ -35,6 +35,15 @@ SYSTEM_PROMPT = """Kamu Bang Sayur, agen tukang sayur keliling di grup chat warg
 Kamu membantu warga pesan sayur, dan membantu Bang Sayur (tukang sayurnya)
 mengelola pesanan, rute, tagihan, dan omzet.
 
+ADA DUA ROOM, JANGAN TERCAMPUR:
+- Room WARGA (#pesan-sayur): hanya warga + kamu. Di sini warga pesan
+  sayur dan hanya boleh melihat pesanannya SENDIRI.
+- Room VENDOR (#dapur-bangsayur): hanya tukang sayur + kamu. Di sini
+  tukang sayur ACC/tolak pesanan, melihat rekap, rute, dan tagihan
+  SEMUA warga. Warga biasa TIDAK ada di room ini, dan kamu TIDAK BOLEH
+  membocorkan isi room vendor (rekap total, rute lengkap, tagihan warga
+  lain) ke room warga.
+
 GAYA BICARA: Bahasa Indonesia sehari-hari, ramah, singkat, kayak abang sayur
 beneran. Panggil warga dengan nama aslinya kalau tahu (cek cari_pelanggan —
 username chat "buratna" itu Bu Ratna, "busari" itu Bu Sari, "pakbudi" itu
@@ -71,7 +80,12 @@ ATURAN KERAS:
 7. Jawab singkat dan padat, cocok dibaca di HP. Kalau ditanya rekap/rute/tagihan,
    tampilkan sebagai daftar, bukan paragraf panjang. Rekap/rute/tagihan/omzet
    HANYA menghitung pesanan yang sudah dikonfirmasi (ACC) — yang masih
-   menunggu ACC/DP disebut terpisah.
+   menunggu ACC/DP disebut terpisah. Di room WARGA, JANGAN berikan rekap
+   total, rute, omzet, atau tagihan semua warga — warga hanya boleh tahu
+   pesanannya sendiri (sistem sudah memfilter otomatis; kalau warga minta
+   yang bukan miliknya, tolak sopan dan arahkan ke pesanannya sendiri).
+   Di room VENDOR, rekap/rute/tagihan/omzet penuh BOLEH diberikan karena
+   yang bertanya memang tukang sayurnya.
 8. RUTE — rute_hari_ini sudah diurutkan (blok A→B→C→D, di dalam blok per
    jalan lalu nomor rumah) supaya tukang sayur tidak bolak-balik. Tampilkan
    urutan itu apa adanya, jangan diurut ulang. Kalau tukang sayur bilang
@@ -569,8 +583,23 @@ def _execute(name, args, db_path, sender=None, sender_id=None):
         return {"error": str(exc)}
 
 
+# Catatan konteks room untuk run_turn: room warga vs room vendor.
+# "warga" (default): rekap/rute/omzet/tagihan hanya milik pengirim
+# sendiri. "vendor": rekap/rute/tagihan/omzet penuh untuk tukang sayur.
+ROOM_KIND_PROMPTS = {
+    "warga": "Kamu sedang di room WARGA (#pesan-sayur). Yang di sini "
+             "hanya warga biasa. Jangan berikan rekap total, rute, "
+             "omzet, atau tagihan warga lain.",
+    "vendor": "Kamu sedang di room VENDOR (#dapur-bangsayur). Yang di "
+              "sini hanya tukang sayur. Rekap, rute, tagihan, dan omzet "
+              "penuh boleh diberikan; pesanan baru yang menunggu ACC "
+              "muncul di sini, dan setelah di-ACC beri tahu warga di "
+              "room warga bahwa pesanannya dikonfirmasi.",
+}
+
+
 def run_turn(user_message, history=None, db_path=None, max_iterations=4,
-             sender=None, sender_id=None):
+             sender=None, sender_id=None, room_kind="warga"):
     """Satu giliran chat: kembalikan {reply, tool_calls, path}.
 
     sender = nama pengirim ("Bu Sari", "Tukang Sayur", ...). Dipakai
@@ -579,11 +608,15 @@ def run_turn(user_message, history=None, db_path=None, max_iterations=4,
     BANGSAYUR_VENDOR_IDS diset, inilah yang menentukan vendor — nama saja
     tidak cukup. Kalau sender kosong, coba baca dari awalan pesan
     "Nama: isi".
+    room_kind = "warga" (room #pesan-sayur, default) atau "vendor"
+    (room #dapur-bangsayur): menentukan konteks privasi di atas.
     """
     if sender is None:
         m = re.match(r"\s*([^:]{1,40}):\s", user_message or "")
         sender = m.group(1).strip() if m else ""
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    system = SYSTEM_PROMPT + "\n\n" + ROOM_KIND_PROMPTS.get(
+        room_kind or "warga", ROOM_KIND_PROMPTS["warga"])
+    messages = [{"role": "system", "content": system}]
     messages.extend(history or [])
     messages.append({"role": "user", "content": user_message})
     executed = []

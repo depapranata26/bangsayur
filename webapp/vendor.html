@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>BangSayur — Dashboard Tukang Sayur</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #efeae2; color: #222; }
+  #app { max-width: 560px; margin: 0 auto; padding: 0 12px 32px; }
+  header { background: #075e54; color: #fff; padding: 14px 12px; margin: 0 -12px 12px; }
+  header b { font-size: 18px; display: block; }
+  header span { font-size: 13px; color: #c8e6c9; }
+  header a { color: #fff; font-size: 13px; }
+  h2 { font-size: 16px; margin: 18px 0 8px; }
+  .card { background: #fff; border-radius: 10px; padding: 12px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.12); font-size: 15px; line-height: 1.5; }
+  .card b { display: block; }
+  .muted { color: #667781; font-size: 13px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  button, select, input { font-size: 15px; padding: 9px 12px; border-radius: 8px; border: 1px solid #d1d7db; background: #fff; }
+  button { background: #128c7e; color: #fff; border: none; cursor: pointer; }
+  button.danger { background: #c0392b; }
+  button.ghost { background: #f0f2f5; color: #222; }
+  button:disabled { background: #8696a0; }
+  input, select { flex: 1; min-width: 120px; }
+  #pinbox { background: #fff; border-radius: 10px; padding: 16px; margin-top: 16px; }
+  #pinbox input { width: 100%; margin: 8px 0; }
+  #err { color: #c0392b; font-size: 14px; margin-top: 8px; min-height: 18px; }
+  #next { background: #dcf8c6; border-left: 5px solid #128c7e; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <b>🥬 Dashboard Tukang Sayur</b>
+    <span>BangSayur — hanya untuk tukang sayur (PIN) • <a href="/">← Kembali ke chat warga</a></span>
+  </header>
+
+  <div id="pinbox">
+    <b>Masukkan PIN vendor</b>
+    <p class="muted">PIN tidak pernah ditampilkan di layar. Kalau salah, tidak ada data yang ditampilkan.</p>
+    <input id="pin" type="password" inputmode="numeric" placeholder="PIN vendor" autocomplete="off">
+    <button id="masuk">Masuk dashboard</button>
+    <div id="err"></div>
+  </div>
+
+  <div id="dash" hidden>
+    <h2>⏳ Menunggu ACC</h2>
+    <div id="menunggu"><p class="muted">Memuat…</p></div>
+
+    <h2>💰 Rekap hari ini</h2>
+    <div id="rekap" class="card"><p class="muted">Memuat…</p></div>
+
+    <h2>🧾 Tagihan belum bayar</h2>
+    <div id="tagihan"><p class="muted">Memuat…</p></div>
+
+    <h2>🛵 Rute hari ini</h2>
+    <div id="berikutnya" class="card"><p class="muted">Memuat…</p></div>
+    <div id="rute"><p class="muted">Memuat…</p></div>
+
+    <h2>🥬 Harga &amp; stok</h2>
+    <div id="harga"><p class="muted">Memuat…</p></div>
+    <div class="card">
+      <b>Ubah harga / stok</b>
+      <div class="row">
+        <select id="item"></select>
+        <input id="hargaBaru" type="number" min="0" placeholder="Harga baru (Rp)">
+        <input id="stokBaru" type="number" min="0" step="any" placeholder="Stok baru">
+        <button id="simpanHarga">Simpan</button>
+      </div>
+      <p class="muted">Isi salah satu saja boleh; yang kosong tidak diubah.</p>
+    </div>
+
+    <h2>📝 Komplain terbaru</h2>
+    <div id="komplain"><p class="muted">Memuat…</p></div>
+
+    <h2>🏪 Status toko</h2>
+    <div class="card">
+      <div class="row">
+        <select id="statusToko">
+          <option value="buka">Buka</option>
+          <option value="libur">Libur</option>
+        </select>
+        <input id="pesanLibur" type="text" placeholder="Pesan kalau libur (mis. Sakit, libur hari ini)">
+      </div>
+      <div class="row">
+        <input id="cutoff" type="text" placeholder="Jam cutoff (HH:MM, mis. 07:00)">
+        <button id="simpanStatus">Simpan status toko</button>
+      </div>
+      <p class="muted" id="statusNow"></p>
+    </div>
+    <div class="row"><button class="ghost" id="muatUlang">↻ Muat ulang</button></div>
+  </div>
+</div>
+<script>
+let pin = ''; // PIN hanya di memori tab ini, tidak disimpan permanen.
+const errEl = document.getElementById('err');
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+async function api(path, opts) {
+  const url = path.includes('?') ? path + '&pin=' + encodeURIComponent(pin) : path + '?pin=' + encodeURIComponent(pin);
+  const r = await fetch(url, opts);
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 403) throw new Error('PIN salah. Coba lagi.');
+  if (!r.ok) throw new Error(data.error || 'Gagal memuat data.');
+  return data;
+}
+async function post(path, body) {
+  return api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, pin }) });
+}
+function kartuMenunggu(m) {
+  return `<div class="card"><b>#${m.pesanan_id} — ${esc(m.nama)} (Blok ${esc(m.blok)})</b>
+    <span>${esc(m.total_rp)} • ${esc(m.tanggal)} • ${esc(m.status)}</span>
+    <div class="row">
+      <button onclick="acc(${m.pesanan_id}, 'acc')">✓ ACC</button>
+      <button class="danger" onclick="acc(${m.pesanan_id}, 'tolak')">✕ Tolak</button>
+      <button class="ghost" onclick="acc(${m.pesanan_id}, 'dp_masuk')">DP masuk</button>
+    </div></div>`;
+}
+async function acc(id, aksi) {
+  try { const d = await post('/api/vendor/acc', { pesanan_id: id, aksi }); alert(d.ok ? `Pesanan #${id}: ${d.status}` : (d.error || 'Gagal')); await muat(); }
+  catch (e) { alert(e.message); }
+}
+async function lunas(id, sel) {
+  try { const d = await post('/api/vendor/lunas', { pesanan_id: id, metode: sel.value }); alert(d.ok ? `Pesanan #${id} lunas (${d.metode_bayar})` : (d.error || 'Gagal')); await muat(); }
+  catch (e) { alert(e.message); }
+}
+async function diantar(id) {
+  try { const d = await post('/api/vendor/diantar', { pesanan_id: id }); alert(d.ok ? `Pesanan #${id} sudah diantar` : (d.error || 'Gagal')); await muat(); }
+  catch (e) { alert(e.message); }
+}
+async function muat() {
+  const r = await api('/api/vendor/ringkasan');
+  const m = r.menunggu || {};
+  document.getElementById('menunggu').innerHTML = (m.menunggu || []).length
+    ? m.menunggu.map(kartuMenunggu).join('') : '<div class="card">Tidak ada pesanan menunggu ACC.</div>';
+  const rek = r.rekap || {};
+  document.getElementById('rekap').innerHTML = `<b>${rek.jumlah_pesanan || 0} pesanan dikonfirmasi • Omzet ${esc(rek.omzet_rp || 'Rp0')}</b><span class="muted">Tanggal ${esc(rek.tanggal || '')} • Menunggu: ${(rek.menunggu || []).length} pesanan</span>`;
+  const tag = r.tagihan || {};
+  document.getElementById('tagihan').innerHTML = (tag.tagihan || []).length
+    ? tag.tagihan.map(t => `<div class="card"><b>#${t.pesanan_id} — ${esc(t.nama)} (Blok ${esc(t.blok)})</b><span>${esc(t.total_rp)} • ${esc(t.tanggal)} • ${esc(t.status_bayar)}</span><div class="row"><select id="met-${t.pesanan_id}"><option value="tunai">Tunai</option><option value="transfer">Transfer</option><option value="qris">QRIS</option></select><button onclick="lunas(${t.pesanan_id}, document.getElementById('met-${t.pesanan_id}'))">Tandai lunas</button></div></div>`).join('')
+    : '<div class="card">Tidak ada tagihan belum bayar.</div>';
+  const rute = r.rute || {};
+  document.getElementById('berikutnya').innerHTML = rute.berikutnya
+    ? `<b>Berikutnya: ${esc(rute.berikutnya.nama)} — ${esc(rute.berikutnya.alamat)}</b><span>${esc(rute.berikutnya.total_rp)} • ${esc(rute.berikutnya.status_bayar)} • Sisa ${rute.belum_diantar} berhenti</span>`
+    : '<b>Semua berhenti hari ini sudah diantar.</b>';
+  document.getElementById('rute').innerHTML = (rute.rute || []).map(g => `<div class="card"><b>Blok ${esc(g.blok)}</b>` + g.berhenti.map(s => `<div>• #${s.pesanan_id} ${esc(s.nama)} — ${esc(s.alamat)} — ${esc(s.total_rp)} (${esc(s.status_antar)}) <button class="ghost" onclick="diantar(${s.pesanan_id})">Tandai diantar</button></div>`).join('') + '</div>').join('') || '<div class="card">Belum ada rute hari ini.</div>';
+  const h = r.harga || {};
+  document.getElementById('harga').innerHTML = (h.items || []).map(i => `<div>• ${esc(i.nama)} — ${esc(i.harga_rp)}/${esc(i.satuan)} • stok ${i.stok}</div>`).join('');
+  document.getElementById('item').innerHTML = (h.items || []).map(i => `<option value="${esc(i.nama)}">${esc(i.nama)}</option>`).join('');
+  const k = await api('/api/vendor/komplain');
+  document.getElementById('komplain').innerHTML = (k.komplain || []).length
+    ? k.komplain.map(x => `<div class="card"><b>${esc(x.nama || 'Warga')} • ${esc(x.tanggal)}</b><span>${esc(x.isi)} (${esc(x.status)})</span></div>`).join('')
+    : '<div class="card">Tidak ada komplain.</div>';
+  const st = r.status_toko || {};
+  document.getElementById('statusNow').textContent = `Status sekarang: ${st.status_toko || '-'} • Cutoff ${st.jam_cutoff || '-'}${st.pesan ? ' • ' + st.pesan : ''}`;
+  document.getElementById('statusToko').value = st.status_toko || 'buka';
+  document.getElementById('cutoff').value = st.jam_cutoff || '';
+}
+document.getElementById('masuk').onclick = async () => {
+  pin = document.getElementById('pin').value;
+  errEl.textContent = '';
+  try { await muat(); document.getElementById('pinbox').hidden = true; document.getElementById('dash').hidden = false; }
+  catch (e) { errEl.textContent = e.message; pin = ''; }
+};
+document.getElementById('pin').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('masuk').click(); });
+document.getElementById('muatUlang').onclick = () => muat().catch(e => alert(e.message));
+document.getElementById('simpanHarga').onclick = async () => {
+  const nama = document.getElementById('item').value;
+  const harga = document.getElementById('hargaBaru').value;
+  const stok = document.getElementById('stokBaru').value;
+  try {
+    const d = await post('/api/vendor/harga', { nama_item: nama, harga: harga === '' ? null : Number(harga), stok: stok === '' ? null : Number(stok) });
+    alert(d.ok ? `${d.nama}: ${d.harga_rp}, stok ${d.stok}` : (d.error || 'Gagal')); await muat();
+  } catch (e) { alert(e.message); }
+};
+document.getElementById('simpanStatus').onclick = async () => {
+  try {
+    const d = await post('/api/vendor/status', { status: document.getElementById('statusToko').value, pesan: document.getElementById('pesanLibur').value, jam_cutoff: document.getElementById('cutoff').value });
+    alert(d.ok ? 'Status toko disimpan' : (d.error || 'Gagal')); await muat();
+  } catch (e) { alert(e.message); }
+};
+</script>
+</body>
+</html>

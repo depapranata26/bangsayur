@@ -2,9 +2,17 @@
 """BangSayur Web App — chat WA-style di atas agen yang sama.
 
 Server stdlib-only (tanpa framework), port 8001:
-  GET  /                -> webapp/index.html
+  GET  /                -> webapp/index.html (chat WARGA saja)
+  GET  /vendor          -> webapp/vendor.html (dashboard TUKANG SAYUR, PIN-gated)
   GET  /api/pelanggan   -> daftar pelanggan seed (untuk picker "Saya:")
   POST /api/chat        -> {"sender": "Bu Sari", "message": "..."} -> {"reply": "..."}
+  GET  /api/vendor/ringkasan | /api/vendor/menunggu | /api/vendor/komplain
+  POST /api/vendor/acc | /api/vendor/lunas | /api/vendor/diantar
+       | /api/vendor/harga | /api/vendor/status
+  Semua /api/vendor/* wajib PIN vendor (query ?pin=, header
+  X-Vendor-Pin, atau field "pin" di body JSON); PIN salah -> 403 dan
+  tidak ada data yang dikembalikan. PIN demo "1234" hanya kalau
+  BANGSAYUR_VENDOR_PIN tidak diset.
 
 Agen = agent.run_turn yang sama seperti runner Switch (Muse Spark via
 Baseten + tools SQLite). JANGAN unset proxy env: panggilan Baseten harus
@@ -17,7 +25,7 @@ import json
 import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 AGENT_DIR = os.path.abspath(os.path.join(HERE, "..", "agent"))
@@ -60,6 +68,20 @@ def _vendor_pin_ok(sender, pin):
     if VENDOR_PIN:
         return (pin or "") == VENDOR_PIN
     return (pin or "") in ("", DEMO_VENDOR_PIN)
+
+
+def _api_vendor_pin_ok(pin):
+    """Cek PIN untuk endpoint /api/vendor/*.
+
+    Berbeda dari /api/chat (yang di mode demo membolehkan tanpa PIN):
+    dashboard vendor SELALU minta PIN. Kalau BANGSAYUR_VENDOR_PIN diset,
+    PIN harus sama persis; kalau tidak diset (mode demo), PIN harus
+    "1234". PIN salah -> 403 dan tidak ada data yang dikembalikan.
+    PIN tidak pernah di-log.
+    """
+    if VENDOR_PIN:
+        return (pin or "") == VENDOR_PIN
+    return (pin or "") == DEMO_VENDOR_PIN
 
 
 def _web_sender_id(sender, sender_id):
@@ -131,10 +153,112 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _pin_from_request(self, data=None):
+        """PIN vendor dari body JSON, header X-Vendor-Pin, atau ?pin=."""
+        if data and data.get("pin") is not None:
+            return str(data.get("pin"))
+        hdr = self.headers.get("X-Vendor-Pin")
+        if hdr:
+            return hdr
+        qs = parse_qs(urlparse(self.path).query)
+        return (qs.get("pin") or [""])[0]
+
+    def _read_json_body(self):
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            return json.loads(self.rfile.read(n).decode("utf-8"))
+        except Exception:
+            return None
+
+    def _vendor_get(self, p):
+        """GET /api/vendor/* — semua PIN-gated (403 kalau PIN salah)."""
+        pin = self._pin_from_request()
+        if not _api_vendor_pin_ok(pin):
+            return self._send_json({"error": "PIN vendor salah."}, 403)
+        if p == "/api/vendor/ringkasan":
+            return self._send_json({
+                "ok": True,
+                "menunggu": tools_mod.daftar_menunggu_acc(WEBAPP_DB),
+                "rekap": tools_mod.rekap_harian(db_path=WEBAPP_DB),
+                "tagihan": tools_mod.tagihan_belum_bayar(db_path=WEBAPP_DB),
+                "rute": tools_mod.rute_hari_ini(db_path=WEBAPP_DB),
+                "harga": tools_mod.daftar_harga(WEBAPP_DB),
+                "status_toko": tools_mod.cek_status_toko(db_path=WEBAPP_DB),
+            })
+        if p == "/api/vendor/menunggu":
+            return self._send_json(
+                tools_mod.daftar_menunggu_acc(WEBAPP_DB))
+        if p == "/api/vendor/komplain":
+            return self._send_json(tools_mod.daftar_komplain(db_path=WEBAPP_DB))
+        self.send_error(404, "not found")
+
+    def _vendor_post(self, p, data):
+        """POST /api/vendor/* — semua PIN-gated, panggil tools langsung
+        (bukan lewat LLM): PIN adalah auth-nya, jadi tools di sini
+        dijalankan sebagai vendor yang sah."""
+        if data is None:
+            return self._send_json({"error": "body JSON tidak valid"}, 400)
+        if not _api_vendor_pin_ok(self._pin_from_request(data)):
+            return self._send_json({"error": "PIN vendor salah."}, 403)
+        try:
+            pid = data.get("pesanan_id")
+            pid = int(pid) if pid is not None else None
+        except (TypeError, ValueError):
+            return self._send_json(
+                {"ok": False, "error": "pesanan_id harus angka."}, 400)
+        if p == "/api/vendor/acc":
+            aksi = (data.get("aksi") or "").strip().lower()
+            if pid is None or aksi not in ("acc", "tolak", "dp_masuk"):
+                return self._send_json(
+                    {"ok": False,
+                     "error": "Butuh pesanan_id dan aksi acc/tolak/dp_masuk."},
+                    400)
+            return self._send_json(
+                tools_mod.konfirmasi_pesanan(pid, aksi, db_path=WEBAPP_DB))
+        if p == "/api/vendor/lunas":
+            if pid is None:
+                return self._send_json(
+                    {"ok": False, "error": "Butuh pesanan_id."}, 400)
+            return self._send_json(tools_mod.tandai_lunas(
+                pid, data.get("metode"), db_path=WEBAPP_DB))
+        if p == "/api/vendor/diantar":
+            if pid is None:
+                return self._send_json(
+                    {"ok": False, "error": "Butuh pesanan_id."}, 400)
+            return self._send_json(
+                tools_mod.tandai_diantar(pid, db_path=WEBAPP_DB))
+        if p == "/api/vendor/harga":
+            nama = (data.get("nama_item") or "").strip()
+            if not nama:
+                return self._send_json(
+                    {"ok": False, "error": "Butuh nama_item."}, 400)
+            return self._send_json(tools_mod.atur_harga_stok(
+                nama, data.get("harga"), data.get("stok"),
+                db_path=WEBAPP_DB))
+        if p == "/api/vendor/status":
+            status = (data.get("status") or "").strip().lower()
+            if status not in ("buka", "libur"):
+                return self._send_json(
+                    {"ok": False, "error": "Status harus buka atau libur."},
+                    400)
+            hasil = tools_mod.atur_status_toko(
+                status, data.get("pesan") or "", db_path=WEBAPP_DB)
+            jam = (data.get("jam_cutoff") or "").strip()
+            if jam and hasil.get("ok"):
+                cutoff = tools_mod.atur_cutoff(jam, db_path=WEBAPP_DB)
+                hasil = dict(hasil)
+                hasil["cutoff"] = cutoff
+                if not cutoff.get("ok"):
+                    return self._send_json(hasil, 400)
+            return self._send_json(hasil)
+        self.send_error(404, "not found")
+
     def do_GET(self):
         p = urlparse(self.path).path
         if p in ("/", "/index.html"):
             return self._send_file(os.path.join(HERE, "index.html"), "text/html; charset=utf-8")
+        if p in ("/vendor", "/vendor.html"):
+            return self._send_file(os.path.join(HERE, "vendor.html"), "text/html; charset=utf-8")
         if p == "/api/pelanggan":
             conn = db_mod.connect(WEBAPP_DB)
             rows = conn.execute(
@@ -144,16 +268,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"pelanggan": [dict(r) for r in rows]})
         if p == "/api/harga":
             return self._send_json(tools_mod.daftar_harga(WEBAPP_DB))
+        if p.startswith("/api/vendor/"):
+            return self._vendor_get(p)
         self.send_error(404, "not found")
 
     def do_POST(self):
         p = urlparse(self.path).path
+        if p.startswith("/api/vendor/"):
+            return self._vendor_post(p, self._read_json_body())
         if p != "/api/chat":
             return self.send_error(404, "not found")
-        try:
-            n = int(self.headers.get("Content-Length") or 0)
-            data = json.loads(self.rfile.read(n).decode("utf-8"))
-        except Exception:
+        data = self._read_json_body()
+        if data is None:
             return self._send_json({"error": "body JSON tidak valid"}, 400)
         sender = (data.get("sender") or "").strip() or "Warga"
         message = (data.get("message") or "").strip()

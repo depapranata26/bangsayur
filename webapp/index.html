@@ -15,6 +15,8 @@
   .who b { font-size: 16px; display: block; }
   .who span { font-size: 12px; color: #c8e6c9; }
   #whoami { background: #06463e; color: #fff; border: 1px solid #128c7e; border-radius: 6px; padding: 5px; font-size: 13px; max-width: 132px; }
+  #vendorlink { background: #f0f2f5; padding: 7px 12px; font-size: 13px; flex-shrink: 0; text-align: right; }
+  #vendorlink a { color: #075e54; text-decoration: none; font-weight: 600; }
   #chat { flex: 1; overflow-y: auto; padding: 12px 10px; display: flex; flex-direction: column; gap: 6px; }
   .msg { max-width: 85%; padding: 8px 10px 6px; border-radius: 8px; font-size: 15px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; box-shadow: 0 1px 1px rgba(0,0,0,.15); }
   .msg .time { display: block; text-align: right; font-size: 10px; color: #8696a0; margin-top: 3px; }
@@ -41,6 +43,7 @@
     <div class="who"><b>BangSayur</b><span>online • balas cepat</span></div>
     <select id="whoami" title="Saya pesan sebagai..."></select>
   </header>
+  <div id="vendorlink"><a href="/vendor">Dashboard Tukang Sayur →</a></div>
   <div id="chat"></div>
   <div id="chips"></div>
   <div id="bar">
@@ -55,23 +58,15 @@ const sendBtn = document.getElementById('send');
 const whoami = document.getElementById('whoami');
 let sender = 'Bu Sari';
 
-// Nama pengirim yang dianggap vendor (sama seperti VENDOR_SENDERS di
-// agent.py). Kalau picker memilih salah satunya, minta PIN vendor.
-const VENDOR_NAMES = new Set(['tukang sayur', 'bang sayur', 'warga', 'toko', 'pemilik']);
-function isVendorSender(name) {
-  return VENDOR_NAMES.has((name || '').trim().toLowerCase());
-}
-
+// View WARGA saja: picker hanya berisi warga, dan chips hanya urusan
+// warga (pesan, harga, pesanan/tagihan MILIK SENDIRI). Urusan vendor —
+// total hari ini, rute, rekap omzet, menunggu ACC — pindah ke dashboard
+// terpisah di /vendor, bukan di chat ini.
 const CHIPS = [
   ['🥬 Pesan sayur', 'Halo bang, saya mau pesan sayur'],
   ['📋 Daftar harga', 'Daftar harga sayur hari ini apa aja bang?'],
-  ['💰 Total hari ini', 'Total pesanan hari ini berapa bang?'],
-  ['🛵 Rute hari ini', 'Rute hari ini gimana bang?'],
-  ['🧾 Belum bayar', 'Siapa aja yang belum bayar bang?'],
-  ['📊 Rekap omzet', 'Rekap omzet hari ini dong bang'],
-  ['⏳ Menunggu ACC', 'Pesanan apa yang menunggu acc bang?'],
-  ['💳 Sudah bayar', 'Bang, saya sudah transfer untuk pesanan saya'],
-  ['📝 Komplain', 'Bang, saya mau komplain soal pesanan saya'],
+  ['🧾 Pesanan saya', 'Pesanan saya hari ini apa aja bang?'],
+  ['💳 Tagihan saya', 'Tagihan saya berapa bang?'],
 ];
 const chipsEl = document.getElementById('chips');
 CHIPS.forEach(([label, text]) => {
@@ -98,14 +93,8 @@ function bubble(text, cls) {
 async function send(text) {
   text = (text || input.value).trim();
   if (!text) return;
-  // Perintah tukang sayur butuh PIN vendor (di mode demo: 1234). PIN
-  // tidak pernah ditampilkan di layar/log — hanya dikirim di body fetch.
-  // Kalau pengguna batal (prompt null), jangan kirim pesan.
-  let pin;
-  if (isVendorSender(sender)) {
-    pin = prompt('PIN vendor (tukang sayur):');
-    if (pin === null) return;
-  }
+  // Chat warga: tidak ada PIN di sini. Perintah vendor (ACC, lunas, rute,
+  // harga) hanya lewat dashboard /vendor yang PIN-gated.
   input.value = '';
   bubble(text, 'out');
   const tp = document.createElement('div');
@@ -115,7 +104,6 @@ async function send(text) {
   sendBtn.disabled = true;
   try {
     const body = { sender, message: text };
-    if (pin !== undefined) body.pin = pin;
     const r = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -137,11 +125,11 @@ input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
 fetch('/api/pelanggan').then(r => r.json()).then(data => {
   const list = data.pelanggan || [];
   const opts = list.map(p => p.nama);
-  opts.push('Tukang Sayur');
+  // Sengaja TIDAK ada 'Tukang Sayur' di sini: picker warga hanya warga.
   whoami.innerHTML = opts.map(n => `<option>${n}</option>`).join('');
   whoami.value = sender;
 }).catch(() => {
-  whoami.innerHTML = ['Bu Sari', 'Pak Budi', 'Bu Ratna', 'Tukang Sayur'].map(n => `<option>${n}</option>`).join('');
+  whoami.innerHTML = ['Bu Sari', 'Pak Budi', 'Bu Ratna'].map(n => `<option>${n}</option>`).join('');
   whoami.value = sender;
 });
 whoami.onchange = () => { sender = whoami.value; };

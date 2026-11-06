@@ -1,5 +1,6 @@
 .switch-agent.json
 .room.json
+.vendor-room.json
 .env
 *.db
 __pycache__/

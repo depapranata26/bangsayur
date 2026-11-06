@@ -37,12 +37,26 @@ complete transcript in [`demo/transcript-demo.md`](demo/transcript-demo.md)
 ## Architecture
 
 ```
-Residents (Mattermost) ──bridge──> Switch Core (room) ──SSE──> agent/run.py
-                                                              │
-                                              Muse Spark (Baseten)
-                                                              │ tool calls
-                                                        SQLite (data/*.db)
+Residents (Mattermost, room #pesan-sayur) ──bridge──> Switch Core ──SSE──> agent/run.py (BANGSAYUR_ROLE=warga)
+Vendor    (Mattermost, room #dapur-bangsayur) ──bridge──> Switch Core ──SSE──> agent/run.py (BANGSAYUR_ROLE=vendor)
+                                                                                  │
+                                                                     Muse Spark (Baseten)
+                                                                                  │ tool calls
+                                                                            SQLite (data/*.db)
 ```
+
+**Two rooms, not one chat.** The vendor does NOT work in the residents'
+chat: residents order in `#pesan-sayur` and only ever see their own
+orders, while the vendor approves orders, reads recaps, plans routes
+and chases bills in `#dapur-bangsayur` (vendor-only). A new order from
+the residents' room appears in the vendor room as "waiting for ACC";
+the vendor approves it there, and the agent then tells the resident in
+the residents' room that the order is confirmed. One Switch connection
+can only claim one room, so the two rooms are served by two runner
+processes sharing the same DB and agent credentials (see step 4 below).
+**Status: the two-room design and its supporting code exist, but it has
+NOT been tested live against Switch/Mattermost yet** — do not claim a
+live two-room demo until it has been run and proven.
 
 - **Switch Core** — the open-source Switch server, running at
   `http://127.0.0.1:8000`. The room is bridged to Switch's built-in Mattermost
@@ -72,10 +86,27 @@ cd webapp
 python3 server.py   # http://127.0.0.1:8001 — demo DB: data/webapp.db (fresh)
 ```
 
-- Green header + 🥬 avatar + online status, "Saya:" ("I am:") picker
-  (Bu Sari, Pak Budi, Bu Ratna, ...), white/green bubbles + timestamps,
-  quick-action chips (Order vegetables, Price list, Today's total, Route,
-  Unpaid, Revenue recap), typing indicator.
+- **Residents' chat (`/`, `webapp/index.html`)** — green header + 🥬
+  avatar + online status, "Saya:" ("I am:") picker with residents only
+  (Bu Sari, Pak Budi, Bu Ratna, ... — no "Tukang Sayur" option),
+  white/green bubbles + timestamps, quick-action chips for residents
+  only (Order vegetables, Price list, My orders, My bills), typing
+  indicator, and a "Dashboard Tukang Sayur →" link at the top. Totals,
+  routes, revenue recaps and the waiting-ACC list are NOT in this chat
+  — they belong to the vendor.
+- **Vendor dashboard (`/vendor`, `webapp/vendor.html`)** — a separate,
+  PIN-gated page for the vendor only: orders waiting for ACC (with ACC /
+  Reject buttons), today's recap, unpaid bills (with Mark paid per
+  order, method cash/transfer/QRIS), today's route in Block A→D order
+  (with Mark delivered per stop and a "Next stop" card), price & stock
+  editing, latest complaints, and shop open/closed status + order
+  cutoff. It calls the real SQLite tools directly through
+  `/api/vendor/*` endpoints (all PIN-gated, 403 without the right PIN);
+  it does not go through the LLM. Open it at
+  `http://127.0.0.1:8001/vendor` and enter the vendor PIN — demo PIN
+  `1234` when `BANGSAYUR_VENDOR_PIN` is unset; set your own strong PIN
+  with `BANGSAYUR_VENDOR_PIN=<your PIN>` before real use (the PIN is
+  never shown in the page or in any log).
 - The exact same agent backend (`agent.run_turn` + SQLite tools) — answers,
   prices, and stock are identical to the Switch/Mattermost demo.
 - Verified 6/6 steps via `/api/chat` (Nov 5, 22:00): order #1 Rp58,000,
@@ -252,10 +283,20 @@ python3 ../demo/run_scenario.py
 # Transcript + DB verification: demo/transcript-demo.md
 ```
 
-Reset the demo anytime (from the repo root): `rm data/bangsayur.db .room.json`,
-then repeat step 4 (the runner creates a new room + Mattermost channel).
-`.room.json` and `.switch-agent.json` both live in the repo root
-(override with `SWITCH_ROOM_FILE` / `SWITCH_CREDS_FILE`).
+Two rooms need two runners (same DB, same agent credentials):
+
+```bash
+BANGSAYUR_ROLE=warga  python3 run.py   # room #pesan-sayur (.room.json)
+BANGSAYUR_ROLE=vendor python3 run.py   # room #dapur-bangsayur (.vendor-room.json)
+# Override the vendor room with SWITCH_VENDOR_ROOM_ID=... /
+# BANGSAYUR_VENDOR_ROOM_ID=... (file: SWITCH_VENDOR_ROOM_FILE).
+```
+
+Reset the demo anytime (from the repo root): `rm data/bangsayur.db .room.json .vendor-room.json`,
+then repeat step 4 (the runner creates new rooms + Mattermost channels).
+`.room.json`, `.vendor-room.json` and `.switch-agent.json` all live in
+the repo root (override with `SWITCH_ROOM_FILE` / `SWITCH_VENDOR_ROOM_FILE` /
+`SWITCH_CREDS_FILE`).
 
 ## Implementation notes (traps already passed)
 
@@ -307,9 +348,11 @@ bangsayur/
 │   └── run.py              # runner: SSE + heartbeat + answer mentions
 ├── webapp/
 │   ├── server.py           # WhatsApp-style web chat server (port 8001)
-│   └── index.html          # single-file WA-style UI
+│   ├── index.html          # single-file WA-style UI (residents only)
+│   └── vendor.html         # vendor dashboard (PIN-gated, /vendor)
 ├── tests/
-│   └── test_tools.py       # unittest (stdlib only): orders, privacy, money, race
+│   ├── test_tools.py       # unittest (stdlib only): orders, privacy, money, race
+│   └── test_vendor_dashboard.py  # unittest: vendor PIN gate, vendor endpoints, split views
 ├── docker/
 │   └── postgres-init/01-mattermost.sh   # create mmuser + mattermost DB
 └── demo/
@@ -352,10 +395,13 @@ python3 demo/run_webapp_demo.py --live [--vendor-pin <PIN>]  # needs Baseten
 ## Why Switch is central (and the web app is only an alternative)
 
 - **Switch + Mattermost is the main path**, because that is where the
-  residents' group chat lives: one room, many residents + the vendor in
-  one conversation, the agent answers `@bangsayur` mentions, and the
-  sender identity comes from each person's Mattermost account. Every
-  flow (order → YA → ACC → route → bills) was designed for that group.
+  residents' group chat lives: the residents' room (`#pesan-sayur`) plus
+  the vendor-only room (`#dapur-bangsayur`), the agent answers
+  `@bangsayur` mentions, and the sender identity comes from each
+  person's Mattermost account. Every flow (order → YA → ACC → route →
+  bills) was designed for those rooms — residents never see the
+  vendor's recap, route or bills, and the vendor never works inside
+  the residents' chat.
 - **The web app (`webapp/server.py`) is only an alternative door / demo
   tool.** It runs the SAME agent (`agent.run_turn`, same SQLite tools),
   but: (1) one user at a time — the sender is picked from the "Saya"
@@ -380,11 +426,26 @@ exact change with decimals, address parsing variants, a two-thread
 stock race that must not oversell, `run_turn` out of iterations replying
 with an apology instead of raw JSON, WIB (`Asia/Jakarta`), and the
 vendor-ID check.
+`tests/test_vendor_dashboard.py` covers the split: vendor endpoints
+without/with the wrong PIN return 403 and leak no data, ACC through the
+endpoint reduces stock exactly once, Mark delivered only works for
+confirmed orders, price changes need the vendor PIN, and the residents'
+chat contains no vendor chips or vendor picker option while
+`/vendor` is PIN-gated and shows no PIN value in its HTML.
 
 ## Known limitations
 
 - **Demo video not recorded yet** (see above); the transcript is verified
-  via local simulation, not a live log.
+  via local simulation, not a live log. Note: the video script
+  (`demo/VIDEO_SCRIPT.md`, `demo/VIDEO_SCRIPT-EN.md`) was written BEFORE
+  the resident/vendor split — it shows the old single-chat flow. The
+  split (residents' chat + vendor dashboard, two Switch rooms) is the
+  current design; re-record the video following the split, do not
+  present the old script as the current flow.
+- **Two Switch rooms are not tested live yet.** The design, the
+  `BANGSAYUR_ROLE` runner support and the `resolve_vendor_room_id`
+  helper exist and are documented, but no live Mattermost/Switch run
+  has proven the two-room flow end to end.
 - **Live demo script mode (`--live`) has not been run** in this session
   (no Baseten call was made); only `--mock` (22 checks) is verified.
   Run `--live` once before claiming an end-to-end web-app flow with the
@@ -411,7 +472,8 @@ vendor-ID check.
 
 ## What is NOT committed
 
-`.env`, `.switch-agent.json` (agent api_key), `.room.json`, `*.db`,
+`.env`, `.switch-agent.json` (agent api_key), `.room.json`,
+`.vendor-room.json`, `*.db`,
 `demo/venv/`, `__pycache__/`. The demo Mattermost passwords (`warga-pw`,
 `pemilik-pw`) are for the local demo environment only — change them in a
 real deployment.

@@ -32,12 +32,26 @@ transkrip penuh di [`demo/transcript-demo.md`](demo/transcript-demo.md)
 ## Arsitektur
 
 ```
-Warga (Mattermost) ──bridge──> Switch Core (room) ──SSE──> agent/run.py
-                                                              │
-                                              Muse Spark (Baseten)
-                                                              │ tool calls
-                                                        SQLite (data/*.db)
+Warga (Mattermost, room #pesan-sayur) ──bridge──> Switch Core ──SSE──> agent/run.py (BANGSAYUR_ROLE=warga)
+Tukang sayur (Mattermost, room #dapur-bangsayur) ──bridge──> Switch Core ──SSE──> agent/run.py (BANGSAYUR_ROLE=vendor)
+                                                                                  │
+                                                                     Muse Spark (Baseten)
+                                                                                  │ tool calls
+                                                                            SQLite (data/*.db)
 ```
+
+**Dua room, bukan satu chat.** Tukang sayur TIDAK bekerja di chat warga:
+warga pesan di `#pesan-sayur` dan hanya melihat pesanannya sendiri,
+sementara tukang sayur ACC pesanan, membaca rekap, menyusun rute, dan
+menagih di `#dapur-bangsayur` (khusus vendor). Pesanan baru dari room
+warga muncul di room vendor sebagai "menunggu ACC"; tukang sayur ACC di
+sana, lalu agen memberi tahu warga di room warga bahwa pesanannya
+dikonfirmasi. Satu koneksi Switch hanya bisa claim satu room, jadi dua
+room dilayani dua proses runner yang berbagi DB dan kredensial agen
+yang sama (lihat langkah 4 di bawah).
+**Status: desain dua room dan kode pendukungnya sudah ada, tapi BELUM
+PERNAH DITES LIVE di Switch/Mattermost** — jangan klaim demo dua room
+live sebelum dijalankan dan dibuktikan.
 
 - **Switch Core** — server Switch (open source), jalan di `http://127.0.0.1:8000`.
   Room di-bridge ke channel Mattermost bawaan Switch.
@@ -64,9 +78,25 @@ cd webapp
 python3 server.py   # http://127.0.0.1:8001 — DB demo: data/webapp.db (fresh)
 ```
 
-- Header hijau + avatar 🥬 + status online, picker "Saya:" (Bu Sari, Pak Budi,
-  Bu Ratna, ...), bubble putih/hijau + jam, tombol cepat (Pesan sayur, Daftar
-  harga, Total hari ini, Rute, Belum bayar, Rekap omzet), indikator mengetik.
+- **Chat warga (`/`, `webapp/index.html`)** — header hijau + avatar 🥬 +
+  status online, picker "Saya:" hanya berisi warga (Bu Sari, Pak Budi,
+  Bu Ratna, ... — TIDAK ada opsi "Tukang Sayur"), bubble putih/hijau +
+  jam, tombol cepat khusus warga (Pesan sayur, Daftar harga, Pesanan
+  saya, Tagihan saya), indikator mengetik, dan link "Dashboard Tukang
+  Sayur →" di atas. Total hari ini, rute, rekap omzet, dan daftar
+  menunggu ACC TIDAK ada di chat ini — itu urusan tukang sayur.
+- **Dashboard tukang sayur (`/vendor`, `webapp/vendor.html`)** — halaman
+  terpisah khusus tukang sayur, PIN-gated: pesanan menunggu ACC (tombol
+  ACC / Tolak), rekap hari ini, tagihan belum bayar (tombol Tandai Lunas
+  per pesanan, pilih tunai/transfer/QRIS), rute hari ini urutan Blok A→D
+  (tombol Tandai Diantar per berhenti + kartu "Berikutnya"), ubah harga &
+  stok, komplain terbaru, dan status toko (Buka/Libur + jam cutoff).
+  Memanggil tools SQLite asli lewat endpoint `/api/vendor/*` (semua
+  PIN-gated, 403 kalau PIN salah); tidak lewat LLM. Buka di
+  `http://127.0.0.1:8001/vendor`, masukkan PIN vendor — PIN demo `1234`
+  kalau `BANGSAYUR_VENDOR_PIN` tidak diset; set PIN sendiri yang kuat
+  dengan `BANGSAYUR_VENDOR_PIN=<PIN kamu>` sebelum dipakai sungguhan
+  (PIN tidak pernah ditampilkan di halaman atau log).
 - Backend-nya agen yang sama persis (`agent.run_turn` + tools SQLite) —
   jawaban, harga, dan stok identik dengan demo Switch/Mattermost.
 - Terverifikasi 6/6 langkah via `/api/chat` (5 Nov 22:00): pesanan #1 Rp58.000,
@@ -233,10 +263,20 @@ python3 ../demo/run_scenario.py
 # Transkrip + verifikasi DB: demo/transcript-demo.md
 ```
 
-Reset demo kapan saja (dari repo root): `rm data/bangsayur.db .room.json`,
+Dua room butuh dua runner (DB dan kredensial agen sama):
+
+```bash
+BANGSAYUR_ROLE=warga  python3 run.py   # room #pesan-sayur (.room.json)
+BANGSAYUR_ROLE=vendor python3 run.py   # room #dapur-bangsayur (.vendor-room.json)
+# Override room vendor dengan SWITCH_VENDOR_ROOM_ID=... /
+# BANGSAYUR_VENDOR_ROOM_ID=... (file: SWITCH_VENDOR_ROOM_FILE).
+```
+
+Reset demo kapan saja (dari repo root): `rm data/bangsayur.db .room.json .vendor-room.json`,
 lalu ulang langkah 4 (runner membuat room + channel Mattermost baru).
-`.room.json` dan `.switch-agent.json` sama-sama ada di repo root
-(override dengan `SWITCH_ROOM_FILE` / `SWITCH_CREDS_FILE`).
+`.room.json`, `.vendor-room.json` dan `.switch-agent.json` sama-sama ada
+di repo root (override dengan `SWITCH_ROOM_FILE` / `SWITCH_VENDOR_ROOM_FILE` /
+`SWITCH_CREDS_FILE`).
 
 ## Catatan implementasi (jebakan yang sudah dilewati)
 
@@ -282,8 +322,13 @@ bangsayur/
 │   ├── db.py               # skema + seed (20 item, 6 pelanggan, Blok A-D)
 │   ├── switch_client.py    # client protokol Switch (stdlib-only)
 │   └── run.py              # runner: SSE + heartbeat + balas mention
+├── webapp/
+│   ├── server.py           # server chat WA (port 8001)
+│   ├── index.html          # UI chat (warga saja)
+│   └── vendor.html         # dashboard tukang sayur (PIN-gated, /vendor)
 ├── tests/
-│   └── test_tools.py       # unittest (stdlib saja): pesanan, privasi, uang, race
+│   ├── test_tools.py       # unittest (stdlib saja): pesanan, privasi, uang, race
+│   └── test_vendor_dashboard.py  # unittest: PIN gate vendor, endpoint vendor, pemisahan tampilan
 ├── docker/
 │   └── postgres-init/01-mattermost.sh   # buat mmuser + DB mattermost
 └── demo/
@@ -327,10 +372,12 @@ python3 demo/run_webapp_demo.py --live [--vendor-pin <PIN>]  # butuh Baseten
 ## Kenapa Switch yang utama (dan web app hanya pintu alternatif)
 
 - **Switch + Mattermost adalah jalur utama**, karena di situlah grup chat
-  warga tinggal: satu room, banyak warga + tukang sayur dalam satu
-  percakapan, agen membalas sebutan `@bangsayur`, dan identitas pengirim
-  berasal dari akun Mattermost masing-masing. Semua alur (pesan → YA →
-  ACC → rute → tagihan) dirancang untuk grup itu.
+  warga tinggal: room warga (`#pesan-sayur`) ditambah room khusus vendor
+  (`#dapur-bangsayur`), agen membalas sebutan `@bangsayur`, dan identitas
+  pengirim berasal dari akun Mattermost masing-masing. Semua alur (pesan
+  → YA → ACC → rute → tagihan) dirancang untuk room-room itu — warga
+  tidak pernah melihat rekap, rute, atau tagihan tukang sayur, dan
+  tukang sayur tidak bekerja di dalam chat warga.
 - **Web app (`webapp/server.py`) hanya pintu alternatif / alat demo.**
   Agennya SAMA (`agent.run_turn` yang sama, tools SQLite yang sama),
   tapi: (1) satu pengguna dalam satu waktu — pengirim dipilih lewat
@@ -354,11 +401,26 @@ diredaksi), pesanan orang lain tidak bisa diubah, catatan di-append,
 kembalian desimal tepat, varian parsing alamat, race stok dua thread yang
 tidak boleh oversell, `run_turn` yang kehabisan iterasi membalas dengan
 kalimat maaf bukan JSON mentah, WIB (`Asia/Jakarta`), dan cek vendor-ID.
+`tests/test_vendor_dashboard.py` mencakup pemisahan: endpoint vendor
+tanpa PIN atau PIN salah balas 403 tanpa bocor data, ACC lewat endpoint
+mengurangi stok tepat sekali, Tandai Diantar hanya untuk pesanan
+dikonfirmasi, ubah harga butuh PIN vendor, dan chat warga tidak berisi
+chip vendor atau opsi picker tukang sayur sementara `/vendor` PIN-gated
+dan HTML-nya tidak berisi nilai PIN.
 
 ## Keterbatasan yang diketahui
 
 - **Video demo belum direkam** (lihat atas); transkrip terverifikasi via
-  simulasi lokal, bukan log live.
+  simulasi lokal, bukan log live. Catatan: naskah video
+  (`demo/VIDEO_SCRIPT.md`, `demo/VIDEO_SCRIPT-EN.md`) ditulis SEBELUM
+  pemisahan warga/vendor — naskah itu menampilkan alur satu chat lama.
+  Pemisahan (chat warga + dashboard vendor, dua room Switch) adalah
+  desain yang berlaku sekarang; rekam ulang videonya mengikuti
+  pemisahan itu, jangan jadikan naskah lama sebagai alur yang berlaku.
+- **Dua room Switch belum dites live.** Desain, dukungan runner
+  `BANGSAYUR_ROLE`, dan helper `resolve_vendor_room_id` sudah ada dan
+  terdokumentasi, tapi belum ada run live Mattermost/Switch yang
+  membuktikan alur dua room end-to-end.
 - **Mode live skrip demo (`--live`) belum dijalankan** di sesi ini
   (tidak ada panggilan model Baseten); yang terverifikasi hanya `--mock`
   (22 cek lolos). Jalankan `--live` sekali sebelum mengklaim alur web
@@ -385,6 +447,7 @@ kalimat maaf bukan JSON mentah, WIB (`Asia/Jakarta`), dan cek vendor-ID.
 
 ## Yang TIDAK di-commit
 
-`.env`, `.switch-agent.json` (api_key agen), `.room.json`, `*.db`,
+`.env`, `.switch-agent.json` (api_key agen), `.room.json`,
+`.vendor-room.json`, `*.db`,
 `demo/venv/`, `__pycache__/`. Demo password Mattermost (`warga-pw`,
 `pemilik-pw`) hanya untuk lingkungan demo lokal — ganti di deployment nyata.
