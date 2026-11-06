@@ -342,23 +342,30 @@ bangsayur/
     ├── transcript-webapp-EN.md  # versi Inggris transkrip webapp (22 cek)
     ├── run_webapp_demo.py  # jalankan ulang demo 6 langkah, --mock atau --live
     ├── VIDEO_SCRIPT.md     # naskah shot-by-shot video demo <3 menit
-    └── VIDEO_SCRIPT-EN.md  # versi bilingual Inggris/Indonesia naskah video
+    ├── VIDEO_SCRIPT-EN.md  # versi bilingual Inggris/Indonesia naskah video
+    ├── VIDEO_NOTE.md       # cara video demo dibuat (catatan jujur)
+    └── bangsayur-demo-video-v2.mp4  # video demo v2 (2 menit 5 detik)
 ```
 
-## Video demo (belum direkam)
+## Video demo (v2 sudah direkam)
 
-**Status: BELUM DIREKAM.** Ikuti naskah shot-by-shot di
-`demo/VIDEO_SCRIPT.md` (9 shot, 2 menit 58 detik, direkam dari HP;
-versi bilingual Inggris: `demo/VIDEO_SCRIPT-EN.md`). Teks siap
-salin-tempel untuk form submit ada di [`SUBMISSION.md`](SUBMISSION.md):
-Bu Sari pesan → ringkasan + YA → menunggu ACC → vendor ACC → stok
-berkurang; Pak Budi dengan alur yang sama; Bu Ratna tanya rekap (hanya
-miliknya, 0); vendor tanya omzet Rp98.000 dan rute (Pak Budi
-Jl. Melati No. 5 dulu, baru Bu Sari No. 12).
+**Status: SUDAH DIREKAM — v2.** Tonton di sini:
+[`demo/bangsayur-demo-video-v2.mp4`](demo/bangsayur-demo-video-v2.mp4)
+(2 menit 5 detik, portrait, narasi Inggris + subtitle), atau
+https://github.com/depapranata26/bangsayur/raw/main/demo/bangsayur-demo-video-v2.mp4
+Teks siap salin-tempel untuk form submit ada di
+[`SUBMISSION.md`](SUBMISSION.md). Video ini menampilkan desain
+pemisahan yang berlaku sekarang: Bu Sari pesan di chat warga →
+ringkasan + YA → menunggu ACC; vendor ACC di dashboard ber-PIN → stok
+berkurang; Pak Budi dengan alur yang sama; omzet vendor Rp98.000 dan
+rute Pak Budi Jl. Melati No. 5 dulu, baru Bu Sari No. 12; Bu Ratna
+tanya rekap (hanya miliknya, 0).
 
-Video direkam dari **web app di browser HP** (chat gaya WA), BUKAN dari
-Mattermost live. Jangan klaim ini rekaman live Mattermost sampai ada
-rekaman live beneran. Transkrip pendampingnya ada di
+Video ini adalah **demo web app**, BUKAN rekaman live Mattermost —
+balasan agen disusun dari hasil tool SQLite asli (21/21 cek). Lihat
+[`demo/VIDEO_NOTE.md`](demo/VIDEO_NOTE.md) untuk cara videonya dibuat.
+Jangan klaim ini rekaman live Mattermost sampai ada rekaman live
+beneran. Transkrip pendampingnya ada di
 `demo/transcript-demo.md` — itu **bukan log live Mattermost**, melainkan
 transkrip yang terverifikasi via simulasi lokal
 (`python3 demo/run_webapp_demo.py --mock`, 22 cek). Jalankan ulang
@@ -410,13 +417,15 @@ dan HTML-nya tidak berisi nilai PIN.
 
 ## Keterbatasan yang diketahui
 
-- **Video demo belum direkam** (lihat atas); transkrip terverifikasi via
-  simulasi lokal, bukan log live. Catatan: naskah video
+- **Video demo v2 adalah demo web app, bukan live** (lihat atas dan
+  `demo/VIDEO_NOTE.md`); transkrip terverifikasi via simulasi lokal,
+  bukan log live. Catatan: naskah video
   (`demo/VIDEO_SCRIPT.md`, `demo/VIDEO_SCRIPT-EN.md`) ditulis SEBELUM
   pemisahan warga/vendor — naskah itu menampilkan alur satu chat lama.
   Pemisahan (chat warga + dashboard vendor, dua room Switch) adalah
-  desain yang berlaku sekarang; rekam ulang videonya mengikuti
-  pemisahan itu, jangan jadikan naskah lama sebagai alur yang berlaku.
+  desain yang berlaku sekarang, dan video v2 sudah mengikutinya;
+  naskah lama hanya disimpan sebagai acuan untuk rekaman ulang live
+  dari HP di masa depan.
 - **Dua room Switch belum dites live.** Desain, dukungan runner
   `BANGSAYUR_ROLE`, dan helper `resolve_vendor_room_id` sudah ada dan
   terdokumentasi, tapi belum ada run live Mattermost/Switch yang

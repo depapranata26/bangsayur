@@ -366,25 +366,32 @@ bangsayur/
     ├── transcript-webapp-EN.md  # English version of the webapp transcript (22 checks)
     ├── run_webapp_demo.py  # re-run the 6-step demo, --mock or --live
     ├── VIDEO_SCRIPT.md     # shot-by-shot script for the <3 min demo video
-    └── VIDEO_SCRIPT-EN.md  # bilingual English/Indonesian version of the video script
+    ├── VIDEO_SCRIPT-EN.md  # bilingual English/Indonesian version of the video script
+    ├── VIDEO_NOTE.md       # how the demo videos were made (honest notes)
+    └── bangsayur-demo-video-v2.mp4  # demo video v2 (2 min 5 sec)
 ```
 
-## Demo video (not recorded yet)
+## Demo video (v2 recorded)
 
-**Status: NOT RECORDED.** Follow the shot-by-shot script in
-`demo/VIDEO_SCRIPT.md` (9 shots, 2 min 58 sec, recorded from a phone;
-bilingual English version: `demo/VIDEO_SCRIPT-EN.md`). Ready-to-paste
-submission text is in [`SUBMISSION.md`](SUBMISSION.md):
-Bu Sari orders → summary + YA → waiting for ACC → vendor ACC → stock
-drops; Pak Budi the same way; Bu Ratna asks for her recap (only her own,
-0); the vendor asks for revenue Rp98,000 and the route (Pak Budi
-Jl. Melati No. 5 first, then Bu Sari No. 12).
+**Status: RECORDED — v2.** Watch it here:
+[`demo/bangsayur-demo-video-v2.mp4`](demo/bangsayur-demo-video-v2.mp4)
+(2 min 5 sec, portrait, English narration + subtitles), or
+https://github.com/depapranata26/bangsayur/raw/main/demo/bangsayur-demo-video-v2.mp4
+Ready-to-paste submission text is in [`SUBMISSION.md`](SUBMISSION.md).
+The video shows the current split design: Bu Sari orders in the
+residents' chat → summary + YA → waiting for ACC; the vendor approves
+in the PIN-gated dashboard → stock drops; Pak Budi the same way; the
+vendor's recap is Rp98,000 and the route is Pak Budi
+Jl. Melati No. 5 first, then Bu Sari No. 12; Bu Ratna asks for her
+recap (only her own, 0).
 
-The video is recorded from the **web app in a phone browser** (WhatsApp-
-style chat), NOT from live Mattermost. Do not claim it is a live
-Mattermost recording until a real live recording exists. The matching
-transcript is `demo/transcript-demo.md` — it is **not a live Mattermost
-log**; it was verified via local simulation
+The video is a **web-app demo**, NOT a live Mattermost recording —
+agent replies are scripted from real SQLite tool results (21/21
+checks). See [`demo/VIDEO_NOTE.md`](demo/VIDEO_NOTE.md) for exactly
+how it was made. Do not claim it is a live Mattermost recording until
+a real live recording exists. The matching transcript is
+`demo/transcript-demo.md` — it is **not a live Mattermost log**; it was
+verified via local simulation
 (`python3 demo/run_webapp_demo.py --mock`, 22 checks). Re-run it with:
 
 ```bash
@@ -435,13 +442,14 @@ chat contains no vendor chips or vendor picker option while
 
 ## Known limitations
 
-- **Demo video not recorded yet** (see above); the transcript is verified
-  via local simulation, not a live log. Note: the video script
+- **Demo video v2 is a web-app demo, not live** (see above and
+  `demo/VIDEO_NOTE.md`); the transcript is verified via local
+  simulation, not a live log. Note: the video script
   (`demo/VIDEO_SCRIPT.md`, `demo/VIDEO_SCRIPT-EN.md`) was written BEFORE
   the resident/vendor split — it shows the old single-chat flow. The
   split (residents' chat + vendor dashboard, two Switch rooms) is the
-  current design; re-record the video following the split, do not
-  present the old script as the current flow.
+  current design, and video v2 already follows it; the old script is
+  kept only as a reference for a future live phone re-recording.
 - **Two Switch rooms are not tested live yet.** The design, the
   `BANGSAYUR_ROLE` runner support and the `resolve_vendor_room_id`
   helper exist and are documented, but no live Mattermost/Switch run
