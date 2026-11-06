@@ -1,4 +1,61 @@
-# VIDEO_NOTE.md — How the BangSayur demo video was made
+# VIDEO_NOTE.md — How the BangSayur demo videos were made
+
+## v2 (current) — `~/workspace/bangsayur-demo-video-v2.mp4`
+(2 min 5 s, 720×1558 portrait, h264 + AAC, 3.0 MB)
+
+**What changed from v1:** v1 showed ONE shared chat for warga and
+vendor. v2 shows the split introduced in commit `c5b2ffa`: the warga
+chat (picker warga only, 4 chips — Pesan sayur, Daftar harga, Pesanan
+saya, Tagihan saya) and the separate PIN-gated vendor dashboard at
+`/vendor` (Menunggu ACC with ACC/Tolak buttons, rekap, tagihan belum
+bayar, rute with "Berikutnya" + Tandai diantar, harga & stok). The
+vendor PIN screen shows only dots (••••) — the PIN digits never
+appear on screen. v1 file is kept untouched at
+`~/workspace/bangsayur-demo-video.mp4`.
+
+**Shots (10 + title):** title → Sari orders Rp58.000 in warga chat →
+YA, menunggu ACC → vendor PIN screen → dashboard: Menunggu ACC #1
+Bu Sari Rp58.000, rekap 0, stok Kangkung 30 / Cabai 8 (belum turun)
+→ vendor ACC #1 → dashboard rekap 1 pesanan Rp58.000, stok 28/7 →
+Budi orders Rp40.000, YA, ACC #2 → dashboard rekap 2 pesanan
+omzet Rp98.000, tagihan belum bayar Rp98.000, lunas Rp0 → dashboard
+rute: Berikutnya Pak Budi Jl. Melati No. 5, lalu Bu Sari No. 12 →
+Ratna in warga chat sees only her own (0, Rp0) → closing:
+"Residents order in chat. The vendor works in the dashboard."
+
+**How it was built:** same honest method as v1. `mock_server.py`
+was extended to serve the real `webapp/index.html` AND
+`webapp/vendor.html` plus `/api/vendor/ringkasan` and
+`/api/vendor/acc` (PIN-gated, 403 without/wrong PIN), all calling
+the real SQLite tools. `drive_demo_v2.py` drove the flow and
+verified **21/21 checks** from SQLite + the vendor API (Rp58.000 /
+Rp40.000 / Rp98.000; stock Kangkung 30→28, Cabai 8→7, Telur 15→14,
+Tempe 20→18, unchanged before ACC; route order; Ratna privacy).
+`render_shots_v2.py` rendered the 11 frames with PIL following the
+real layouts of `index.html` and `vendor.html`; narration is English
+TTS, one voice (`avocado_v2:MAI_03`, speed 90), 10 clips, 99.1 s
+total; subtitles burned in (PlayRes 720×1558, FontSize 34, 2 cues
+per shot). `assemble_v2.py` built the video. Verification frames
+extracted at 12 s (warga chat), 46 s (dashboard menunggu ACC),
+93 s (route) — all readable, numbers correct, subtitles do not
+cover the main content. Audio confirmed present (RMS −31.8 dB,
+peak −5.8 dB). `python3 -m py_compile` passes for all new/changed
+scripts. Working files: `/tmp/video-demo/` (`drive_demo_v2.py`,
+`render_shots_v2.py`, `assemble_v2.py`, `transcript_v2.json`,
+`shots-v2/`, `narr-v2/`, `subs-v2.srt`).
+
+**What v2 is NOT (same as v1):** not a live LLM demo (Baseten
+unavailable in the recording VM, credential 403), not live
+Mattermost/Switch (web app, not a Mattermost group), frames are PIL
+renders not browser screenshots (headless Chrome cannot start in
+this VM), emoji stripped in renders. No AI-generated video was used
+(0 generative video). A live phone re-recording is still the
+strongest option before submitting (see "How Depa can re-record"
+below); the two-room Switch flow is also still unproven live.
+
+---
+
+# VIDEO_NOTE.md — How the BangSayur demo video was made (v1)
 
 Video file: `~/workspace/bangsayur-demo-video.mp4`
 (1 min 50 s, 720×1558 portrait, h264 + AAC, 2.9 MB)
