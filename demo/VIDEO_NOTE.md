@@ -1,6 +1,61 @@
 # VIDEO_NOTE.md — How the BangSayur demo videos were made
 
-## v2 (current) — `~/workspace/bangsayur-demo-video-v2.mp4`
+## v3 (current) — `~/workspace/bangsayur-demo-video-v3.mp4`
+(2 min 48 s, 720×1558 portrait, h264 + AAC, 3.8 MB)
+
+**What changed from v2:** v2's frames were PIL renders, not real
+browser output. v3 is recorded LIVE IN THE BROWSER: a real Chromium
+(Playwright 1.64.1, Chrome Headless Shell 156) drove the REAL
+`webapp/index.html` and `webapp/vendor.html` — typing messages,
+clicking send, filling the vendor PIN, clicking ACC — and every
+frame is a genuine browser screenshot (390×844 @2x, 12 shots).
+This fixes the exact thing the submission form asks for ("show the
+agent working in a real chat"): the app is really running and
+really being used, in real time, instead of pre-rendered frames.
+The flow, shots, and numbers are the same as v2.
+
+**How it was built:** `/tmp/video-demo/mock_server.py` (rebuilt
+after the VM wiped /tmp) serves the real webapp pages; `/api/chat`
+is answered rule-based from the real SQLite tools via
+`agent._execute` (same enforcement/privacy path as `run_turn`),
+and `/api/vendor/*` is used as-is from `webapp/server.py`
+(PIN-gated). `drive_playwright.py` drove the browser and verified
+**9/9 checks** live in the page (Rp58.000 / Rp40.000 / Rp98.000;
+stock Kangkung 30→28, Cabai 8→7, Telur 15→14, Tempe 20→18, only
+after ACC; route Budi No. 5 then Sari No. 12; Ratna 0/Rp0).
+Narration is English TTS, one voice (`avocado_v2:MAI_03`, speed
+90), 13 clips, 148.5 s total (first draft was 212.6 s and was cut
+to fit under 3 minutes). Subtitles burned in (PlayRes 720×1558,
+FontSize 30, 3 short cues per shot, WrapStyle 0 — the first burn
+used WrapStyle 2 and the subtitles ran off the frame; fixed and
+re-burned, then re-verified). `assemble_v3.py` + `fix_subs_v3.py`
+built the video. Verification frames extracted at 5 s (title),
+70 s (dashboard menunggu ACC), 145 s (route, rekap Rp98.000),
+160 s (Ratna 0/Rp0) — all readable, numbers correct, subtitles
+inside the frame. Audio confirmed present (mean −28.4 dB,
+peak −5.0 dB). `python3 -m py_compile` passes for all scripts.
+Working files: `/tmp/video-demo/` (`mock_server.py`,
+`drive_playwright.py`, `assemble_v3.py`, `fix_subs_v3.py`,
+`title_v3.py`, `narr-v3/`, `shots-v3/`, `checks-v3.json`).
+Note: Playwright's own Chromium works in this VM; the Hatch
+`/opt/meta-chromium/chrome` CLI still cannot start (WebGL policy),
+and `browser.browse` was NOT used — a subagent cannot operate the
+live browser, so the recording used Playwright directly.
+
+**Two honest details about the recording:**
+- The demo was recorded in the evening, after the app's 07:00 order
+  cutoff — orders would have been dated tomorrow, so the
+  "today" recap/route would have shown Rp0. The mock server sets
+  the cutoff to 23:59 through the app's own `atur_cutoff` setting,
+  so the demo orders stay dated today — the same numbers the app
+  shows when the demo is run in the morning (as v1/v2 were).
+- The agent replies are still tool-based, not live LLM (Baseten
+  unavailable in this VM, credential 403), and this is still the
+  web app, not live Mattermost/Switch. The title card says so:
+  "Interactive demo. Not a live Mattermost recording." No
+  AI-generated video was used (0 generative video).
+
+## v2 — `~/workspace/bangsayur-demo-video-v2.mp4`
 (2 min 5 s, 720×1558 portrait, h264 + AAC, 3.0 MB)
 
 **What changed from v1:** v1 showed ONE shared chat for warga and

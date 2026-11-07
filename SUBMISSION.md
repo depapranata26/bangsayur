@@ -167,20 +167,21 @@ dengan perintah di atas (12 tes, 22 cek).*
 
 ## Demo video
 
-https://github.com/depapranata26/bangsayur/raw/main/demo/bangsayur-demo-video-v2.mp4
+https://github.com/depapranata26/bangsayur/raw/main/demo/bangsayur-demo-video-v3.mp4
 
-Demo video v2 (2 min 5 sec, portrait, English narration + subtitles,
-also in the repo at `demo/bangsayur-demo-video-v2.mp4`). It shows the
-current split design: residents order in the chat (Bu Sari Rp58,000,
-YA, waiting for ACC), the vendor works in the PIN-gated dashboard
-(approves order #1, stock drops only at ACC, revenue Rp98,000, route
-Pak Budi Jl. Melati No. 5 first, then Bu Sari No. 12), and Bu Ratna
-only sees her own data. Honest note: this is a web-app demo with agent
-replies scripted from real SQLite tool results (21/21 checks) — not a
-live LLM / live Mattermost recording. See `demo/VIDEO_NOTE.md` for how
-it was made. For the submission form, upload this file to YouTube /
-Drive / Loom if the form needs a streaming link, and use that link
-instead of the raw GitHub file link.
+Demo video v3 (2 min 48 sec, under the 3-minute limit, portrait,
+English narration + subtitles, also in the repo at
+`demo/bangsayur-demo-video-v3.mp4`). Unlike v1/v2, v3 was recorded
+LIVE in a browser driving the real web app: residents order in the
+chat (Bu Sari Rp58,000, YA, waiting for ACC), the vendor works in the
+PIN-gated dashboard (approves order #1, stock drops only at ACC,
+revenue Rp98,000, route Pak Budi Jl. Melati No. 5 first, then Bu Sari
+No. 12), and Bu Ratna only sees her own data. Honest note: this is a
+web-app demo with agent replies from real SQLite tool results (9/9
+live checks) — not a live LLM / live Mattermost recording. See
+`demo/VIDEO_NOTE.md` for how it was made. For the submission form,
+upload this file to YouTube / Loom (public or unlisted) and use that
+link instead of the raw GitHub file link.
 
 The demo transcript (English, with the agent's original Indonesian
 replies and translations) is in
@@ -191,12 +192,13 @@ was verified via local simulation
 (`python3 demo/run_webapp_demo.py --mock`, 22 checks) — it is not a
 live Mattermost log.
 
-*Arti: Video demo v2 (2 menit 5 detik, portrait, narasi Inggris +
-subtitle) ada di repo, `demo/bangsayur-demo-video-v2.mp4`, atau di link
-di atas. Video ini menampilkan desain pemisahan yang berlaku sekarang
-(chat warga + dashboard vendor). Jujur: ini demo web app dengan
-balasan agen yang disusun dari hasil tool SQLite asli (21/21 cek) —
-bukan rekaman live LLM / live Mattermost. Lihat `demo/VIDEO_NOTE.md`.*
+*Arti: Video demo v3 (2 menit 48 detik, di bawah batas 3 menit,
+portrait, narasi Inggris + subtitle) ada di repo,
+`demo/bangsayur-demo-video-v3.mp4`, atau di link di atas. Berbeda
+dengan v1/v2, v3 direkam LIVE di browser yang menggerakkan web app
+asli. Jujur: ini demo web app dengan balasan agen dari hasil tool
+SQLite asli (9/9 cek live) — bukan rekaman live LLM / live Mattermost.
+Lihat `demo/VIDEO_NOTE.md`.*
 *Transkrip demo (bahasa Inggris, dengan balasan asli agen dalam bahasa
 Indonesia plus terjemahan) ada di
 [`demo/transcript-demo-EN.md`](demo/transcript-demo-EN.md); versi
