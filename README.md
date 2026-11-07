@@ -371,12 +371,14 @@ bangsayur/
     └── bangsayur-demo-video-v2.mp4  # demo video v2 (2 min 5 sec)
 ```
 
-## Demo video (v2 recorded)
+## Demo video (v3 recorded live in the browser)
 
-**Status: RECORDED — v2.** Watch it here:
-[`demo/bangsayur-demo-video-v2.mp4`](demo/bangsayur-demo-video-v2.mp4)
-(2 min 5 sec, portrait, English narration + subtitles), or
-https://github.com/depapranata26/bangsayur/raw/main/demo/bangsayur-demo-video-v2.mp4
+**Status: RECORDED — v3.** Watch it here:
+[`demo/bangsayur-demo-video-v3.mp4`](demo/bangsayur-demo-video-v3.mp4)
+(2 min 48 sec, under the 3-minute limit, portrait, English narration
++ subtitles), or
+https://github.com/depapranata26/bangsayur/raw/main/demo/bangsayur-demo-video-v3.mp4
+(v2 is still in the repo at `demo/bangsayur-demo-video-v2.mp4`.)
 Ready-to-paste submission text is in [`SUBMISSION.md`](SUBMISSION.md).
 The video shows the current split design: Bu Sari orders in the
 residents' chat → summary + YA → waiting for ACC; the vendor approves
@@ -386,10 +388,11 @@ Jl. Melati No. 5 first, then Bu Sari No. 12; Bu Ratna asks for her
 recap (only her own, 0).
 
 The video is a **web-app demo**, NOT a live Mattermost recording —
-agent replies are scripted from real SQLite tool results (21/21
-checks). See [`demo/VIDEO_NOTE.md`](demo/VIDEO_NOTE.md) for exactly
-how it was made. Do not claim it is a live Mattermost recording until
-a real live recording exists. The matching transcript is
+v3 was recorded live in a browser driving the real web app, with
+agent replies from real SQLite tool results (9/9 live checks). See
+[`demo/VIDEO_NOTE.md`](demo/VIDEO_NOTE.md) for exactly how it was
+made. Do not claim it is a live Mattermost recording until a real
+live recording exists. The matching transcript is
 `demo/transcript-demo.md` — it is **not a live Mattermost log**; it was
 verified via local simulation
 (`python3 demo/run_webapp_demo.py --mock`, 22 checks). Re-run it with:

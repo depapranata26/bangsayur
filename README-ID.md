@@ -347,12 +347,14 @@ bangsayur/
     └── bangsayur-demo-video-v2.mp4  # video demo v2 (2 menit 5 detik)
 ```
 
-## Video demo (v2 sudah direkam)
+## Video demo (v3 sudah direkam live di browser)
 
-**Status: SUDAH DIREKAM — v2.** Tonton di sini:
-[`demo/bangsayur-demo-video-v2.mp4`](demo/bangsayur-demo-video-v2.mp4)
-(2 menit 5 detik, portrait, narasi Inggris + subtitle), atau
-https://github.com/depapranata26/bangsayur/raw/main/demo/bangsayur-demo-video-v2.mp4
+**Status: SUDAH DIREKAM — v3.** Tonton di sini:
+[`demo/bangsayur-demo-video-v3.mp4`](demo/bangsayur-demo-video-v3.mp4)
+(2 menit 48 detik, di bawah batas 3 menit, portrait, narasi Inggris
++ subtitle), atau
+https://github.com/depapranata26/bangsayur/raw/main/demo/bangsayur-demo-video-v3.mp4
+(v2 masih ada di repo di `demo/bangsayur-demo-video-v2.mp4`.)
 Teks siap salin-tempel untuk form submit ada di
 [`SUBMISSION.md`](SUBMISSION.md). Video ini menampilkan desain
 pemisahan yang berlaku sekarang: Bu Sari pesan di chat warga →
@@ -362,7 +364,8 @@ rute Pak Budi Jl. Melati No. 5 dulu, baru Bu Sari No. 12; Bu Ratna
 tanya rekap (hanya miliknya, 0).
 
 Video ini adalah **demo web app**, BUKAN rekaman live Mattermost —
-balasan agen disusun dari hasil tool SQLite asli (21/21 cek). Lihat
+v3 direkam live di browser yang menggerakkan web app asli, dengan
+balasan agen dari hasil tool SQLite asli (9/9 cek live). Lihat
 [`demo/VIDEO_NOTE.md`](demo/VIDEO_NOTE.md) untuk cara videonya dibuat.
 Jangan klaim ini rekaman live Mattermost sampai ada rekaman live
 beneran. Transkrip pendampingnya ada di
